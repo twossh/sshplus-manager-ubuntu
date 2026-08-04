@@ -4,6 +4,15 @@ Todas as alterações relevantes deste projeto são registradas neste arquivo.
 
 ## [Unreleased]
 
+## [5.1.1] - 2026-08-04
+
+### Corrigido
+
+- Corrige a leitura de `SHA256SUMS-release.txt` quando os nomes possuem o prefixo `./`.
+- Gera os checksums da Release sem prefixo de caminho, mantendo compatibilidade com `sha256sum -c`.
+- Adiciona teste de regressão para o artefato usado pelo instalador online.
+
+
 ## [5.1.0] - 2026-08-04
 
 ### Adicionado

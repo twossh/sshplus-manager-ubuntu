@@ -55,7 +55,7 @@ package_tree 'SSHPlus-Manager-Ubuntu-26.04' 'ubuntu-26.04'
 
 (
     cd "$DIST"
-    sha256sum ./*.zip ./*.tar.gz | LC_ALL=C sort -k2 > SHA256SUMS-release.txt
+    sha256sum -- *.zip *.tar.gz | LC_ALL=C sort -k2 > SHA256SUMS-release.txt
 )
 
 printf 'Artefatos Ubuntu LTS criados em %s:\n' "$DIST"

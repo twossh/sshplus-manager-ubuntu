@@ -32,7 +32,15 @@ base="https://github.com/${REPOSITORY}/releases/latest/download"
 printf 'Baixando a última Release de %s...\n' "$REPOSITORY"
 curl -fL --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 300 -o "$work/$ASSET" "$base/$ASSET"
 curl -fL --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 60 -o "$work/$CHECKSUMS" "$base/$CHECKSUMS"
-expected="$(awk -v file="$ASSET" '$2 == file || $2 == "*" file {print $1; exit}' "$work/$CHECKSUMS")"
+expected="$(awk -v file="$ASSET" '
+    NF >= 2 {
+        checksum=$1
+        name=$2
+        sub(/^\*/, "", name)
+        sub(/^\.\//, "", name)
+        if (name == file) { print checksum; exit }
+    }
+' "$work/$CHECKSUMS")"
 [[ "$expected" =~ ^[a-fA-F0-9]{64}$ ]] || { printf 'Checksum esperado não encontrado.\n' >&2; exit 1; }
 printf '%s  %s\n' "$expected" "$ASSET" > "$work/SHA256SUMS-selected.txt"
 (cd "$work" && sha256sum -c --strict SHA256SUMS-selected.txt)
