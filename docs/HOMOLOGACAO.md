@@ -45,3 +45,14 @@ Resultado: N aprovado(s), N aviso(s), 0 erro(s).
 
 Use uma VPS descartável na primeira homologação e mantenha o console da
 hospedagem disponível durante alterações no OpenSSH e firewall.
+
+
+## Correção automática
+
+Quando o diagnóstico encontrar arquivos de integração, atalhos ou timers
+ausentes, execute:
+
+```bash
+sudo /opt/sshplus/bin/sshplus-repair
+sudo sshplus --healthcheck
+```

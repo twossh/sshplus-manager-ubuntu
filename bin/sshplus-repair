@@ -1,0 +1,218 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 027
+
+SSHPLUS_HOME="${SSHPLUS_HOME:-/opt/sshplus}"
+SSHPLUS_CONFIG_DIR="${SSHPLUS_CONFIG_DIR:-/etc/sshplus}"
+SSHPLUS_STATE_DIR="${SSHPLUS_STATE_DIR:-/var/lib/sshplus}"
+SSHPLUS_LOG_DIR="${SSHPLUS_LOG_DIR:-/var/log/sshplus}"
+SSHPLUS_DB="${SSHPLUS_DB:-$SSHPLUS_STATE_DIR/sshplus.db}"
+SSHPLUS_CONF="${SSHPLUS_CONF:-$SSHPLUS_CONFIG_DIR/sshplus.conf}"
+
+OS_RELEASE="${SSHPLUS_OS_RELEASE:-/etc/os-release}"
+SYSTEMD_DIR="${SSHPLUS_SYSTEMD_DIR:-/etc/systemd/system}"
+LOCAL_SBIN="${SSHPLUS_LOCAL_SBIN:-/usr/local/sbin}"
+LOCAL_BIN="${SSHPLUS_LOCAL_BIN:-/usr/local/bin}"
+SSHD_DROPIN_DIR="${SSHPLUS_SSHD_DROPIN_DIR:-/etc/ssh/sshd_config.d}"
+TMPFILES_FILE="${SSHPLUS_TMPFILES_FILE:-/etc/tmpfiles.d/sshplus.conf}"
+LOGROTATE_FILE="${SSHPLUS_LOGROTATE_FILE:-/etc/logrotate.d/sshplus}"
+API_GROUP="${SSHPLUS_API_GROUP:-sshplus-api}"
+
+SKIP_PANEL="${SSHPLUS_REPAIR_SKIP_PANEL:-0}"
+SKIP_SYSTEMCTL="${SSHPLUS_REPAIR_SKIP_SYSTEMCTL:-0}"
+SKIP_HEALTHCHECK="${SSHPLUS_REPAIR_SKIP_HEALTHCHECK:-0}"
+SKIP_SSHD="${SSHPLUS_REPAIR_SKIP_SSHD:-0}"
+
+usage() {
+    cat <<'USAGE'
+Uso: sudo sshplus --repair [opções]
+
+  --no-panel        não reparar Nginx/PHP-FPM
+  --no-systemctl    não habilitar/reiniciar unidades systemd
+  --no-healthcheck  não executar diagnóstico final
+  -h, --help        exibir esta ajuda
+USAGE
+}
+
+while (( $# > 0 )); do
+    case "$1" in
+        --no-panel) SKIP_PANEL=1 ;;
+        --no-systemctl) SKIP_SYSTEMCTL=1 ;;
+        --no-healthcheck) SKIP_HEALTHCHECK=1 ;;
+        -h|--help) usage; exit 0 ;;
+        *) printf 'Opção desconhecida: %s\n' "$1" >&2; usage >&2; exit 2 ;;
+    esac
+    shift
+done
+
+# shellcheck source=/opt/sshplus/lib/common.sh
+source "$SSHPLUS_HOME/lib/common.sh"
+# shellcheck source=/opt/sshplus/lib/database.sh
+source "$SSHPLUS_HOME/lib/database.sh"
+
+require_root
+[[ -r "$OS_RELEASE" ]] || die 'Sistema operacional não identificado.'
+# shellcheck disable=SC1090
+source "$OS_RELEASE"
+[[ "${ID:-}" == ubuntu ]] || die 'Este reparo é exclusivo para Ubuntu.'
+sshplus_supported_ubuntu "${VERSION_ID:-}" || die 'Use Ubuntu 24.04 LTS ou 26.04 LTS.'
+export SSHPLUS_UBUNTU_VERSION_ID="${VERSION_ID:-}"
+
+header 'Reparo completo do SSHPlus Manager' "Ubuntu ${VERSION_ID} · versão $(sshplus_version)"
+
+required=(
+    "$SSHPLUS_HOME/bin/sshplus"
+    "$SSHPLUS_HOME/bin/sshplus-agent"
+    "$SSHPLUS_HOME/bin/sshplus-expirer"
+    "$SSHPLUS_HOME/bin/sshplus-limiter"
+    "$SSHPLUS_HOME/bin/sshplus-metrics"
+    "$SSHPLUS_HOME/bin/sshplus-healthcheck"
+    "$SSHPLUS_HOME/bin/sshplus-panel-repair"
+    "$SSHPLUS_HOME/bin/sshplus-repair"
+    "$SSHPLUS_HOME/lib/common.sh"
+    "$SSHPLUS_HOME/lib/database.sh"
+    "$SSHPLUS_HOME/database/schema.sql"
+)
+for file in "${required[@]}"; do
+    [[ -f "$file" ]] || die "Arquivo obrigatório ausente: $file"
+done
+
+if ! getent group "$API_GROUP" >/dev/null 2>&1; then
+    [[ "$API_GROUP" == sshplus-api ]] || die "Grupo de teste inexistente: $API_GROUP"
+    groupadd --system "$API_GROUP"
+fi
+
+install -d -m 0750 -o root -g "$API_GROUP" "$SSHPLUS_CONFIG_DIR"
+install -d -m 0750 -o root -g root "$SSHPLUS_STATE_DIR"
+install -d -m 0750 -o root -g adm "$SSHPLUS_LOG_DIR"
+install -d -m 0750 -o root -g root "$SSHPLUS_BACKUP_DIR"
+
+ssh_port='22'
+if (( SKIP_SSHD == 0 )) && [[ -x /usr/sbin/sshd ]]; then
+    detected_port="$(/usr/sbin/sshd -T 2>/dev/null | awk '$1=="port"{print $2; exit}' || true)"
+    ssh_port="${detected_port:-22}"
+fi
+repository="$(tr -d '\r\n[:space:]' < "$SSHPLUS_HOME/REPOSITORY" 2>/dev/null || true)"
+[[ "$repository" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || repository=''
+
+if [[ ! -f "$SSHPLUS_CONF" ]]; then
+    cat > "$SSHPLUS_CONF" <<CONF
+SSHPLUS_TIMEZONE="America/Sao_Paulo"
+SSHPLUS_SSH_PORT="$ssh_port"
+SSHPLUS_EXPIRE_ACTION="lock"
+SSHPLUS_GITHUB_REPOSITORY="$repository"
+SSHPLUS_PANEL_ENABLED="yes"
+SSHPLUS_PANEL_LISTEN="127.0.0.1:8088"
+CONF
+    ok "Configuração principal criada: $SSHPLUS_CONF"
+else
+    grep -q '^SSHPLUS_TIMEZONE=' "$SSHPLUS_CONF" || set_config_value "$SSHPLUS_CONF" SSHPLUS_TIMEZONE 'America/Sao_Paulo'
+    grep -q '^SSHPLUS_SSH_PORT=' "$SSHPLUS_CONF" || set_config_value "$SSHPLUS_CONF" SSHPLUS_SSH_PORT "$ssh_port"
+    grep -q '^SSHPLUS_EXPIRE_ACTION=' "$SSHPLUS_CONF" || set_config_value "$SSHPLUS_CONF" SSHPLUS_EXPIRE_ACTION 'lock'
+    grep -q '^SSHPLUS_GITHUB_REPOSITORY=' "$SSHPLUS_CONF" || set_config_value "$SSHPLUS_CONF" SSHPLUS_GITHUB_REPOSITORY "$repository"
+    grep -q '^SSHPLUS_PANEL_ENABLED=' "$SSHPLUS_CONF" || set_config_value "$SSHPLUS_CONF" SSHPLUS_PANEL_ENABLED 'yes'
+    grep -q '^SSHPLUS_PANEL_LISTEN=' "$SSHPLUS_CONF" || set_config_value "$SSHPLUS_CONF" SSHPLUS_PANEL_LISTEN '127.0.0.1:8088'
+    ok 'Configuração principal preservada e completada.'
+fi
+chown root:"$API_GROUP" "$SSHPLUS_CONF"
+chmod 0640 "$SSHPLUS_CONF"
+load_config
+
+for log_file in sshplus.log operations.log panel-access.log panel-error.log; do
+    touch "$SSHPLUS_LOG_DIR/$log_file"
+    chown root:adm "$SSHPLUS_LOG_DIR/$log_file"
+    chmod 0640 "$SSHPLUS_LOG_DIR/$log_file"
+done
+touch "$SSHPLUS_LOG_DIR/php-error.log"
+chown root:"$API_GROUP" "$SSHPLUS_LOG_DIR/php-error.log"
+chmod 0660 "$SSHPLUS_LOG_DIR/php-error.log"
+
+install -d -m 0755 "$(dirname "$TMPFILES_FILE")" "$(dirname "$LOGROTATE_FILE")"
+cat > "$TMPFILES_FILE" <<TMP
+ d $SSHPLUS_CONFIG_DIR 0750 root $API_GROUP -
+ d $SSHPLUS_STATE_DIR 0750 root root -
+ d $SSHPLUS_LOG_DIR 0750 root adm -
+ f $SSHPLUS_LOG_DIR/sshplus.log 0640 root adm -
+ f $SSHPLUS_LOG_DIR/operations.log 0640 root adm -
+ f $SSHPLUS_LOG_DIR/panel-access.log 0640 root adm -
+ f $SSHPLUS_LOG_DIR/panel-error.log 0640 root adm -
+ f $SSHPLUS_LOG_DIR/php-error.log 0660 root $API_GROUP -
+TMP
+sed -i 's/^ //' "$TMPFILES_FILE"
+chmod 0644 "$TMPFILES_FILE"
+
+cat > "$LOGROTATE_FILE" <<ROTATE
+$SSHPLUS_LOG_DIR/*.log {
+    weekly
+    rotate 8
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0640 root adm
+    sharedscripts
+    postrotate
+        systemctl reload nginx.service >/dev/null 2>&1 || true
+    endscript
+}
+ROTATE
+chmod 0644 "$LOGROTATE_FILE"
+
+export SSHPLUS_DB SSHPLUS_CONFIG_DIR SSHPLUS_STATE_DIR SSHPLUS_LOG_DIR SSHPLUS_CONF
+db_init
+chown root:root "$SSHPLUS_DB"
+chmod 0600 "$SSHPLUS_DB"
+ok 'Banco SQLite verificado.'
+
+install -d -m 0755 "$SSHD_DROPIN_DIR" "$SYSTEMD_DIR" "$LOCAL_SBIN" "$LOCAL_BIN"
+if [[ -f "$SSHPLUS_HOME/config/00-sshplus.conf" ]]; then
+    install -m 0644 "$SSHPLUS_HOME/config/00-sshplus.conf" "$SSHD_DROPIN_DIR/00-sshplus.conf"
+fi
+
+for unit in "$SSHPLUS_HOME"/systemd/*; do
+    [[ -f "$unit" ]] || continue
+    install -m 0644 "$unit" "$SYSTEMD_DIR/$(basename "$unit")"
+done
+
+link_command() {
+    local source="$1" destination="$2"
+    [[ -e "$source" ]] || return 0
+    chmod 0755 "$source"
+    ln -sfn "$source" "$destination"
+}
+
+link_command "$SSHPLUS_HOME/bin/sshplus" "$LOCAL_SBIN/sshplus"
+link_command "$SSHPLUS_HOME/bin/sshplus" "$LOCAL_BIN/menu"
+link_command "$SSHPLUS_HOME/bin/sshplus-agent" "$LOCAL_SBIN/sshplus-agent"
+link_command "$SSHPLUS_HOME/bin/sshplus-healthcheck" "$LOCAL_SBIN/sshplus-healthcheck"
+link_command "$SSHPLUS_HOME/bin/sshplus-panel-repair" "$LOCAL_SBIN/sshplus-panel-repair"
+link_command "$SSHPLUS_HOME/bin/sshplus-repair" "$LOCAL_SBIN/sshplus-repair"
+link_command "$SSHPLUS_HOME/bin/sshplus-badvpn" "$LOCAL_SBIN/sshplus-badvpn"
+link_command "$SSHPLUS_HOME/bin/sshplus-badvpn" "$LOCAL_SBIN/badvpn"
+link_command "$SSHPLUS_HOME/bin/sshplus-slowdns" "$LOCAL_SBIN/sshplus-slowdns"
+link_command "$SSHPLUS_HOME/bin/sshplus-slowdns" "$LOCAL_SBIN/slowdns"
+ok 'Atalhos administrativos reconstruídos.'
+
+if (( SKIP_SYSTEMCTL == 0 )); then
+    systemctl daemon-reload
+    systemctl enable --now sshplus-expirer.timer sshplus-limiter.timer sshplus-metrics.timer
+    ok 'Timers de expiração, sessões e métricas habilitados.'
+else
+    warn 'Ativação systemd ignorada por solicitação.'
+fi
+
+if [[ "$SSHPLUS_PANEL_ENABLED" == yes && $SKIP_PANEL -eq 0 ]]; then
+    SSHPLUS_CORE_REPAIR_ACTIVE=1 "$SSHPLUS_HOME/bin/sshplus-panel-repair"
+else
+    warn 'Reparo do painel ignorado ou painel desativado.'
+fi
+
+if (( SKIP_SSHD == 0 )) && [[ -x /usr/sbin/sshd ]]; then
+    /usr/sbin/sshd -t || die 'A configuração do OpenSSH ficou inválida.'
+fi
+
+ok 'Integração do SSHPlus com o sistema concluída.'
+
+if (( SKIP_HEALTHCHECK == 0 )); then
+    "$SSHPLUS_HOME/bin/sshplus-healthcheck"
+fi

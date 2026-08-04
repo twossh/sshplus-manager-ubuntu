@@ -204,6 +204,7 @@ ln -sfn "$TARGET/bin/sshplus-slowdns" /usr/local/sbin/sshplus-slowdns; ln -sfn "
 ln -sfn "$TARGET/bin/sshplus-agent" /usr/local/sbin/sshplus-agent
 ln -sfn "$TARGET/bin/sshplus-healthcheck" /usr/local/sbin/sshplus-healthcheck
 ln -sfn "$TARGET/bin/sshplus-panel-repair" /usr/local/sbin/sshplus-panel-repair
+ln -sfn "$TARGET/bin/sshplus-repair" /usr/local/sbin/sshplus-repair
 
 if (( PANEL_ENABLED == 1 )); then
     install -m 0440 "$BASE_DIR/sudoers/sshplus-api" /etc/sudoers.d/sshplus-api
@@ -254,10 +255,10 @@ bantime = 1h
 CONF
 systemctl enable --now fail2ban.service; systemctl restart fail2ban.service
 command -v ufw >/dev/null 2>&1 && ufw allow "${DETECTED_SSH_PORT}/tcp" comment 'SSHPlus OpenSSH' >/dev/null || true
-if (( PANEL_ENABLED == 1 )); then
-    info 'Validando e reparando a integração do painel...'
-    "$TARGET/bin/sshplus-panel-repair"
-fi
+info 'Validando e reparando a integração completa com o sistema...'
+repair_args=(--no-healthcheck)
+(( PANEL_ENABLED == 0 )) && repair_args+=(--no-panel)
+"$TARGET/bin/sshplus-repair" "${repair_args[@]}"
 rm -rf "$TARGET.old"
 
 printf '\n'; ok "SSHPlus Manager $(sshplus_version) instalado."

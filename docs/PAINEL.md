@@ -49,6 +49,7 @@ exclusivamente pelo agente administrativo. A autenticação web utiliza o arquiv
 ## Diagnóstico e reparo
 
 ```bash
+sudo sshplus --repair
 sudo sshplus --panel-repair
 sudo sshplus --healthcheck
 curl -fsS http://127.0.0.1:8088/api/health | jq
@@ -57,3 +58,15 @@ curl -fsS http://127.0.0.1:8088/api/health | jq
 O login não depende da auditoria para ser concluído. Falhas do agente são
 registradas em `/var/log/sshplus/php-error.log` com um código de referência, sem
 expor senhas ou chaves no navegador.
+
+
+## Instalação parcial
+
+Se o diagnóstico indicar ausência de `sshplus.conf`, atalhos ou timers, use:
+
+```bash
+sudo /opt/sshplus/bin/sshplus-repair
+```
+
+O caminho direto funciona mesmo quando `/usr/local/sbin/sshplus` ainda não foi
+criado. O reparador não remove usuários nem recria o banco existente.

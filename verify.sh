@@ -9,10 +9,10 @@ notice(){ printf '[AVISO] %s\n' "$*"; ((warnings++)); }
 
 printf 'SSHPlus Manager %s — verificação\n\n' "$(tr -d '\r\n' < "$BASE_DIR/VERSION")"
 required=(VERSION TARGET REPOSITORY README.md CHANGELOG.md install.sh uninstall.sh install-online.sh
-  bin/sshplus bin/sshplus-agent bin/sshplus-expirer bin/sshplus-limiter bin/sshplus-metrics bin/sshplus-healthcheck bin/sshplus-panel-repair
+  bin/sshplus bin/sshplus-agent bin/sshplus-expirer bin/sshplus-limiter bin/sshplus-metrics bin/sshplus-healthcheck bin/sshplus-panel-repair bin/sshplus-repair
   lib/common.sh lib/database.sh lib/user_service.sh modules/users.sh modules/panel.sh modules/update.sh modules/backup.sh
   database/schema.sql api/bootstrap.php api/AgentClient.php api/router.php web/public/index.php web/public/assets/app.css web/public/assets/app.js
-  nginx/sshplus-panel.conf.template sudoers/sshplus-api systemd/sshplus-metrics.service systemd/sshplus-metrics.timer docs/UBUNTU-LTS.md scripts/test-panel-integration.sh)
+  nginx/sshplus-panel.conf.template sudoers/sshplus-api systemd/sshplus-metrics.service systemd/sshplus-metrics.timer docs/UBUNTU-LTS.md scripts/test-panel-integration.sh scripts/test-repair-integration.sh)
 for item in "${required[@]}"; do [[ -f "$BASE_DIR/$item" ]] && pass "Arquivo presente: $item" || fail "Arquivo ausente: $item"; done
 
 version="$(tr -d '\r\n' < "$BASE_DIR/VERSION")"

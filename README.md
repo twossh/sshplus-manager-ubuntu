@@ -82,7 +82,7 @@ Comandos úteis:
 ```bash
 sudo sshplus --panel-status
 sudo sshplus --panel-reset-password
-sudo sshplus --panel-repair
+sudo sshplus --repair
 sudo sshplus --healthcheck
 ```
 
@@ -113,17 +113,22 @@ sudo badvpn
 sudo slowdns
 ```
 
-## Reparar o painel
+## Reparo de instalações incompletas
 
-Se o painel responder com erro interno, execute:
+Se uma atualização for interrompida depois de copiar `/opt/sshplus`, execute:
 
 ```bash
-sudo sshplus --panel-repair
+sudo /opt/sshplus/bin/sshplus-repair
 ```
 
-O reparo valida Nginx, o socket PHP-FPM correto para o Ubuntu, leitura da
-credencial por `www-data`, política `sudoers`, agente root, banco SQLite, sessão
-PHP e o endpoint `/api/health`.
+Depois que os atalhos forem reconstruídos, o comando permanente é:
+
+```bash
+sudo sshplus --repair
+```
+
+O reparador preserva usuários e banco, recria somente arquivos de integração
+ausentes, reinstala unidades `systemd`, habilita os timers e valida o painel.
 
 ## Segurança da API
 
@@ -153,6 +158,8 @@ Na atualização da versão 4.x:
 ```bash
 sudo sshplus --check-update
 sudo sshplus --update
+sudo sshplus --repair
+sudo sshplus --healthcheck
 ```
 
 Antes de substituir `/opt/sshplus`, o instalador cria um ponto em:

@@ -19,6 +19,7 @@ fi
 
 bash ./scripts/checksums.sh check
 bash ./verify.sh
+bash ./scripts/test-repair-integration.sh
 bash ./scripts/build-release.sh
 
 # Valida os checksums da Release e o nome usado pelo instalador online.

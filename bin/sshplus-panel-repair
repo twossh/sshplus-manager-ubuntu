@@ -7,6 +7,13 @@ source "$SSHPLUS_HOME/lib/common.sh"
 source "$SSHPLUS_HOME/lib/database.sh"
 
 require_root
+
+# Chamadas diretas ao reparador do painel também completam a integração central.
+# O reparador central define SSHPLUS_CORE_REPAIR_ACTIVE para evitar recursão.
+if [[ "${SSHPLUS_CORE_REPAIR_ACTIVE:-0}" != 1 && -x "$SSHPLUS_HOME/bin/sshplus-repair" ]]; then
+    exec "$SSHPLUS_HOME/bin/sshplus-repair" "$@"
+fi
+
 [[ -r /etc/os-release ]] || die 'Sistema operacional não identificado.'
 # shellcheck disable=SC1091
 source /etc/os-release

@@ -4,21 +4,27 @@ Todas as alterações relevantes deste projeto são registradas neste arquivo.
 
 ## [Unreleased]
 
+## [5.1.3] - 2026-08-04
+
+### Adicionado
+
+- Reparador completo e idempotente com `sudo sshplus --repair`.
+- Reconstrução automática de `/etc/sshplus/sshplus.conf`, atalhos administrativos e unidades `systemd` ausentes.
+- Teste integrado do reparador em diretórios isolados, incluindo banco SQLite, timers e links simbólicos.
+
+### Corrigido
+
+- Instalações interrompidas que deixavam a aplicação em `/opt/sshplus`, mas sem configuração principal, timers ou comandos em `/usr/local`.
+- `--panel-repair` agora executa também o reparo da integração central antes de validar Nginx, PHP-FPM e API.
+- O instalador executa uma etapa final de autorreparo antes de concluir.
+
 ## [5.1.2] - 2026-08-04
 
 ### Corrigido
 
-- O login não retorna mais erro HTTP 500 quando a gravação de auditoria está temporariamente indisponível.
-- Comunicação PHP → sudo → agente root com resposta JSON previsível e diagnóstico seguro.
-- Permissão direta e por grupo para o usuário `www-data` executar somente o agente autorizado.
-- Remoção automática de configurações Nginx duplicadas em `conf.d`.
-- Permissões do arquivo de autenticação, sessão PHP e logs do PHP-FPM.
-
-### Adicionado
-
-- Comando `sudo sshplus --panel-repair` para reparar e validar Nginx, PHP-FPM, autenticação e agente.
-- Verificações internas em `/api/health` e no diagnóstico pós-instalação.
-- Teste obrigatório da ponte privilegiada e da API antes de concluir a instalação.
+- Login do painel não é mais interrompido quando a auditoria privilegiada está temporariamente indisponível.
+- Permissões, grupo do PHP-FPM, política sudoers, sessões PHP e integração com o agente root são reparados automaticamente.
+- Teste integrado de login válido, login inválido, API autenticada e ponte PHP/sudo/agente.
 
 ## [5.1.1] - 2026-08-04
 

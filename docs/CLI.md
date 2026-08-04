@@ -27,6 +27,7 @@ O comando principal possui consultas sem menu:
 sudo sshplus --status
 sudo sshplus --logs
 sudo sshplus --version
+sudo sshplus --repair
 ```
 
 ## Diagnóstico pós-instalação
@@ -37,3 +38,14 @@ sudo sshplus --healthcheck
 
 Executa verificações somente leitura e retorna código diferente de zero quando
 encontra erro crítico. Consulte `docs/HOMOLOGACAO.md`.
+
+
+## Reparo da integração
+
+```bash
+sudo sshplus --repair
+```
+
+Reconstrói a configuração principal, os atalhos em `/usr/local`, as unidades e
+timers do `systemd`, e executa o reparo do painel. Em instalações parciais sem o
+atalho principal, use `/opt/sshplus/bin/sshplus-repair`.

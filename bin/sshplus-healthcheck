@@ -105,7 +105,7 @@ for file in "${required_files[@]}"; do
     [[ -f "$file" ]] && pass "Arquivo presente: $file" || fail "Arquivo ausente: $file"
 done
 
-for link in /usr/local/sbin/sshplus /usr/local/bin/menu /usr/local/sbin/sshplus-agent /usr/local/sbin/sshplus-healthcheck /usr/local/sbin/sshplus-panel-repair; do
+for link in /usr/local/sbin/sshplus /usr/local/bin/menu /usr/local/sbin/sshplus-agent /usr/local/sbin/sshplus-healthcheck /usr/local/sbin/sshplus-panel-repair /usr/local/sbin/sshplus-repair; do
     if [[ -L "$link" && -e "$link" ]]; then
         pass "Atalho válido: $link"
     else
@@ -258,5 +258,8 @@ fi
 emit ''
 emit "Resultado: $passed aprovado(s), $warnings aviso(s), $failed erro(s)."
 [[ -n "$report_file" ]] && emit "Relatório: $report_file"
+if (( failed > 0 )); then
+    emit "Correção recomendada: sudo /opt/sshplus/bin/sshplus-repair"
+fi
 
 (( failed == 0 ))
