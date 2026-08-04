@@ -21,6 +21,9 @@ O verificador cobre:
 - Timers instalados.
 - Versões instaladas de BadVPN e DNSTT.
 - Presença das chaves `server.key` e `server.pub`.
+- Seleção da Release latest ou de versão fixada no instalador online.
+- Template Nginx HTTPS, front controller PHP e rollback transacional.
+- Pacotes de Release e checksums usados pelo instalador online.
 
 ## Teste recomendado em VPS
 

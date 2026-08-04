@@ -11,7 +11,22 @@ opcional e cria um segundo acesso protegido por HTTPS, sem remover o túnel SSH.
 - portas TCP 80 e 443 liberadas no firewall do provedor;
 - endereço de e-mail válido para avisos do Let's Encrypt.
 
+## Pré-verificação
+
+```bash
+sudo sshplus --panel-public preflight --domain painel.exemplo.com
+```
+
+Para integração com automações:
+
+```bash
+sudo sshplus --panel-public preflight --domain painel.exemplo.com --json
+sudo sshplus --panel-public status --json
+```
+
 ## Ativação
+
+A ativação é transacional. Caso Certbot, Nginx ou a API HTTPS falhem, a configuração anterior é restaurada automaticamente.
 
 ```bash
 sudo sshplus --panel-public enable \
@@ -40,10 +55,14 @@ use `--force`.
 sudo sshplus --panel-public status
 ```
 
-## Renovação
+## Reaplicar configuração e renovar
+
+Após uma atualização, o reparador reaplica automaticamente o template HTTPS. Também pode ser executado manualmente:
 
 ```bash
+sudo sshplus --panel-public reconfigure
 sudo sshplus --panel-public renew
+sudo sshplus --panel-public test-renewal
 ```
 
 O pacote Certbot também executa renovações automáticas pelo `systemd`.

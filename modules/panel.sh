@@ -86,9 +86,12 @@ panel_menu() {
         printf '  4) Reiniciar Nginx e PHP-FPM\n'
         printf '  5) Reparar e validar o painel\n'
         printf '  6) Status do domínio/HTTPS público\n'
-        printf '  7) Ativar domínio/HTTPS público\n'
-        printf '  8) Desativar domínio/HTTPS público\n'
-        printf '  9) Verificar renovação do certificado\n'
+        printf '  7) Pré-verificar domínio e requisitos\n'
+        printf '  8) Ativar domínio/HTTPS público\n'
+        printf '  9) Desativar domínio/HTTPS público\n'
+        printf ' 10) Reaplicar configuração HTTPS\n'
+        printf ' 11) Renovar certificados agora\n'
+        printf ' 12) Simular renovação do certificado\n'
         printf '  0) Voltar\n\n'
         read -r -p 'Opção: ' option || return
         case "$option" in
@@ -100,12 +103,19 @@ panel_menu() {
             6) "$SSHPLUS_HOME/bin/sshplus-panel-public" status; pause ;;
             7)
                 domain="$(prompt_value 'Domínio do painel (ex.: painel.exemplo.com)' '')" || continue
+                "$SSHPLUS_HOME/bin/sshplus-panel-public" preflight --domain "$domain"
+                pause
+                ;;
+            8)
+                domain="$(prompt_value 'Domínio do painel (ex.: painel.exemplo.com)' '')" || continue
                 email="$(prompt_value 'E-mail para o Let’s Encrypt' '')" || continue
                 "$SSHPLUS_HOME/bin/sshplus-panel-public" enable --domain "$domain" --email "$email"
                 pause
                 ;;
-            8) "$SSHPLUS_HOME/bin/sshplus-panel-public" disable; pause ;;
-            9) "$SSHPLUS_HOME/bin/sshplus-panel-public" renew; pause ;;
+            9) "$SSHPLUS_HOME/bin/sshplus-panel-public" disable; pause ;;
+            10) "$SSHPLUS_HOME/bin/sshplus-panel-public" reconfigure; pause ;;
+            11) "$SSHPLUS_HOME/bin/sshplus-panel-public" renew; pause ;;
+            12) "$SSHPLUS_HOME/bin/sshplus-panel-public" test-renewal; pause ;;
             0) return ;;
             *) warn 'Opção inválida.'; sleep 1 ;;
         esac

@@ -12,7 +12,7 @@ required=(VERSION TARGET REPOSITORY README.md CHANGELOG.md install.sh uninstall.
   bin/sshplus bin/sshplus-agent bin/sshplus-expirer bin/sshplus-limiter bin/sshplus-metrics bin/sshplus-healthcheck bin/sshplus-panel-repair bin/sshplus-panel-public bin/sshplus-repair
   lib/common.sh lib/database.sh lib/user_service.sh modules/users.sh modules/panel.sh modules/update.sh modules/backup.sh
   database/schema.sql api/bootstrap.php api/AgentClient.php api/router.php web/public/index.php web/public/assets/app.css web/public/assets/app.js
-  nginx/sshplus-panel.conf.template nginx/sshplus-panel-public.conf.template sudoers/sshplus-api systemd/sshplus-metrics.service systemd/sshplus-metrics.timer docs/UBUNTU-LTS.md docs/PAINEL-PUBLICO.md scripts/test-panel-integration.sh scripts/test-repair-integration.sh scripts/test-panel-public.sh)
+  nginx/sshplus-panel.conf.template nginx/sshplus-panel-public.conf.template sudoers/sshplus-api systemd/sshplus-metrics.service systemd/sshplus-metrics.timer docs/UBUNTU-LTS.md docs/PAINEL-PUBLICO.md scripts/test-panel-integration.sh scripts/test-repair-integration.sh scripts/test-panel-public.sh scripts/test-install-online.sh)
 for item in "${required[@]}"; do [[ -f "$BASE_DIR/$item" ]] && pass "Arquivo presente: $item" || fail "Arquivo ausente: $item"; done
 
 version="$(tr -d '\r\n' < "$BASE_DIR/VERSION")"
@@ -49,6 +49,19 @@ if grep -RIEq 'new[[:space:]]+(PDO|SQLite3)|sqlite:file:' "$BASE_DIR/api" 2>/dev
 if grep -nA30 "path === '/api/login'" "$BASE_DIR/api/router.php" | grep -q "AgentClient::call('audit.write'"; then fail 'Auditoria bloqueante encontrada no login.'; else pass 'Auditoria do login é não bloqueante.'; fi
 if grep -q '^www-data ALL=(root) NOPASSWD: SSHPLUS_AGENT$' "$BASE_DIR/sudoers/sshplus-api"; then pass 'Sudoers permite somente o agente ao usuário PHP.'; else fail 'Regra direta do usuário www-data ausente.'; fi
 if find "$BASE_DIR" -type f -perm -0002 -print -quit | grep -q .; then fail 'Arquivo world-writable encontrado.'; else pass 'Permissões do pacote sem world-writable.'; fi
+if grep -q 'for dir in bin lib modules api web database nginx sudoers config systemd' "$BASE_DIR/install.sh"; then pass 'Instalador preserva configuração e unidades systemd no runtime.'; else fail 'Instalador não copia config/systemd para /opt/sshplus.'; fi
+for template in "$BASE_DIR/nginx/sshplus-panel.conf.template" "$BASE_DIR/nginx/sshplus-panel-public.conf.template"; do
+  grep -q 'location = /index.php' "$template" && grep -A2 'location ~ \\.php' "$template" | grep -q 'return 404;' \
+    && pass "Nginx restringe PHP ao front controller: ${template#$BASE_DIR/}." \
+    || fail "Template Nginx permite execução PHP ampla: ${template#$BASE_DIR/}."
+done
+if grep -q 'gh release upload.*--clobber' "$BASE_DIR/.github/workflows/release.yml" && grep -q 'group: release-${{ github.repository }}$' "$BASE_DIR/.github/workflows/release.yml"; then
+  pass 'Workflow de Release idempotente e serializado.'
+else
+  fail 'Workflow de Release sem atualização idempotente ou concorrência global.'
+fi
+SSHPLUS_BOOTSTRAP_TEST_MODE=1 bash "$BASE_DIR/install-online.sh" --version "$version" | grep -q "ubuntu-lts-v${version}.tar.gz" \
+  && pass 'Instalador online aceita versão fixada.' || fail 'Instalador online não selecionou a versão fixada.'
 
 if command -v sqlite3 >/dev/null 2>&1; then
   temp="$(mktemp -d /tmp/sshplus-verify.XXXXXX)"; trap 'rm -rf "$temp"' EXIT

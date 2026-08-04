@@ -77,7 +77,7 @@ fi
 
 info 'Instalando a aplicação de forma atômica...'
 rm -rf "$TARGET.new"; install -d -m 0755 "$TARGET.new"
-for dir in bin lib modules api web database nginx sudoers; do cp -a "$BASE_DIR/$dir" "$TARGET.new/"; done
+for dir in bin lib modules api web database nginx sudoers config systemd; do cp -a "$BASE_DIR/$dir" "$TARGET.new/"; done
 for file in REPOSITORY VERSION TARGET; do install -m 0644 "$BASE_DIR/$file" "$TARGET.new/$file"; done
 find "$TARGET.new/bin" -type f -exec chmod 0755 {} +
 find "$TARGET.new/lib" "$TARGET.new/modules" -type f -exec chmod 0644 {} +
@@ -118,9 +118,9 @@ if [[ "$BUNDLED_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ && "$BUNDLED_RE
     grep -q '^SSHPLUS_GITHUB_REPOSITORY="[^" ]\+"' "$CONF_DIR/sshplus.conf" 2>/dev/null || set_config_value "$CONF_DIR/sshplus.conf" SSHPLUS_GITHUB_REPOSITORY "$BUNDLED_REPOSITORY"
 fi
 
-touch "$LOG_DIR/sshplus.log" "$LOG_DIR/operations.log" "$LOG_DIR/panel-access.log" "$LOG_DIR/panel-error.log" "$LOG_DIR/php-error.log"
-chown root:adm "$LOG_DIR/sshplus.log" "$LOG_DIR/operations.log" "$LOG_DIR/panel-access.log" "$LOG_DIR/panel-error.log"
-chmod 0640 "$LOG_DIR/sshplus.log" "$LOG_DIR/operations.log" "$LOG_DIR/panel-access.log" "$LOG_DIR/panel-error.log"
+touch "$LOG_DIR/sshplus.log" "$LOG_DIR/operations.log" "$LOG_DIR/panel-access.log" "$LOG_DIR/panel-error.log" "$LOG_DIR/panel-public-access.log" "$LOG_DIR/panel-public-error.log" "$LOG_DIR/php-error.log"
+chown root:adm "$LOG_DIR/sshplus.log" "$LOG_DIR/operations.log" "$LOG_DIR/panel-access.log" "$LOG_DIR/panel-error.log" "$LOG_DIR/panel-public-access.log" "$LOG_DIR/panel-public-error.log"
+chmod 0640 "$LOG_DIR/sshplus.log" "$LOG_DIR/operations.log" "$LOG_DIR/panel-access.log" "$LOG_DIR/panel-error.log" "$LOG_DIR/panel-public-access.log" "$LOG_DIR/panel-public-error.log"
 chown root:sshplus-api "$LOG_DIR/php-error.log"; chmod 0660 "$LOG_DIR/php-error.log"
 
 cat > /etc/tmpfiles.d/sshplus.conf <<'CONF'
@@ -131,6 +131,8 @@ f /var/log/sshplus/sshplus.log 0640 root adm -
 f /var/log/sshplus/operations.log 0640 root adm -
 f /var/log/sshplus/panel-access.log 0640 root adm -
 f /var/log/sshplus/panel-error.log 0640 root adm -
+f /var/log/sshplus/panel-public-access.log 0640 root adm -
+f /var/log/sshplus/panel-public-error.log 0640 root adm -
 f /var/log/sshplus/php-error.log 0660 root sshplus-api -
 CONF
 systemd-tmpfiles --create /etc/tmpfiles.d/sshplus.conf

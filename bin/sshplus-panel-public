@@ -13,6 +13,7 @@ NGINX_AVAILABLE="${SSHPLUS_PANEL_PUBLIC_NGINX_AVAILABLE:-/etc/nginx/sites-availa
 NGINX_ENABLED="${SSHPLUS_PANEL_PUBLIC_NGINX_ENABLED:-/etc/nginx/sites-enabled/sshplus-panel-public}"
 ACME_ROOT="${SSHPLUS_PANEL_ACME_ROOT:-/var/lib/sshplus/acme}"
 TEMPLATE="$SSHPLUS_HOME/nginx/sshplus-panel-public.conf.template"
+LOCK_FILE="${SSHPLUS_PANEL_PUBLIC_LOCK:-/run/lock/sshplus-panel-public.lock}"
 
 ACTION="${1:-status}"
 [[ $# -gt 0 ]] && shift || true
@@ -22,23 +23,28 @@ FORCE=0
 STAGING=0
 OPEN_FIREWALL=1
 PURGE_CERTIFICATE=0
+JSON_OUTPUT=0
 
 usage() {
     cat <<'USAGE'
 Uso: sudo sshplus --panel-public AÇÃO [opções]
 
 Ações:
-  status
-  enable  --domain painel.exemplo.com --email admin@exemplo.com
+  status [--json]
+  preflight --domain painel.exemplo.com [--json]
+  enable --domain painel.exemplo.com --email admin@exemplo.com
   disable [--purge-certificate]
+  reconfigure
   renew
+  test-renewal
 
-Opções de enable:
+Opções:
   --domain DOMINIO       domínio público já apontado para a VPS
   --email EMAIL          e-mail para avisos do Let's Encrypt
   --force                continuar mesmo se o DNS não apontar para o IPv4 detectado
   --staging              usar o ambiente de testes do Let's Encrypt
   --no-firewall          não criar regras UFW para 80/TCP e 443/TCP
+  --json                 retornar status ou preflight em JSON
 
 O painel local em 127.0.0.1:8088 permanece ativo em todos os modos.
 USAGE
@@ -52,11 +58,16 @@ while (( $# > 0 )); do
         --staging) STAGING=1 ;;
         --no-firewall) OPEN_FIREWALL=0 ;;
         --purge-certificate) PURGE_CERTIFICATE=1 ;;
+        --json) JSON_OUTPUT=1 ;;
         -h|--help) usage; exit 0 ;;
         *) die "Opção desconhecida: $1" ;;
     esac
     shift
 done
+
+install -d -m 0755 "$(dirname "$LOCK_FILE")"
+exec 9>"$LOCK_FILE"
+flock -n 9 || die 'Outra operação do painel público já está em andamento.'
 
 valid_domain() {
     local value="${1,,}"
@@ -93,21 +104,24 @@ CONF
 }
 
 render_public_nginx() {
-    local domain="$1" php_socket="$2" fullchain="$3" privkey="$4"
+    local domain="$1" php_socket="$2" fullchain="$3" privkey="$4" tmp
     [[ -f "$TEMPLATE" ]] || die "Template Nginx ausente: $TEMPLATE"
+    tmp="$(mktemp "$(dirname "$NGINX_AVAILABLE")/.sshplus-panel-public.XXXXXX")"
     sed \
         -e "s|@DOMAIN@|$domain|g" \
         -e "s|@ACME_ROOT@|$ACME_ROOT|g" \
         -e "s|@FULLCHAIN@|$fullchain|g" \
         -e "s|@PRIVKEY@|$privkey|g" \
         -e "s|@PHP_FPM_SOCKET@|$php_socket|g" \
-        "$TEMPLATE" > "$NGINX_AVAILABLE"
-    chmod 0644 "$NGINX_AVAILABLE"
+        "$TEMPLATE" > "$tmp"
+    install -m 0644 "$tmp" "$NGINX_AVAILABLE"
+    rm -f "$tmp"
 }
 
 write_acme_nginx() {
-    local domain="$1"
-    cat > "$NGINX_AVAILABLE" <<NGINX
+    local domain="$1" tmp
+    tmp="$(mktemp "$(dirname "$NGINX_AVAILABLE")/.sshplus-panel-acme.XXXXXX")"
+    cat > "$tmp" <<NGINX
 server {
     listen 80;
     listen [::]:80;
@@ -125,7 +139,8 @@ server {
     }
 }
 NGINX
-    chmod 0644 "$NGINX_AVAILABLE"
+    install -m 0644 "$tmp" "$NGINX_AVAILABLE"
+    rm -f "$tmp"
 }
 
 ensure_local_panel() {
@@ -133,16 +148,99 @@ ensure_local_panel() {
     SSHPLUS_CORE_REPAIR_ACTIVE=1 "$SSHPLUS_HOME/bin/sshplus-panel-repair"
 }
 
-check_dns() {
-    local domain="$1" public_ip resolved
-    public_ip="$(get_public_ipv4)"
-    resolved="$(getent ahostsv4 "$domain" 2>/dev/null | awk '{print $1}' | LC_ALL=C sort -u | paste -sd, -)"
-    [[ -n "$resolved" ]] || die "O domínio $domain ainda não possui registro IPv4 público."
-    printf '  IPv4 da VPS: %s\n' "$public_ip"
-    printf '  DNS atual:   %s\n' "$resolved"
-    if [[ "$public_ip" != indisponível ]] && ! tr ',' '\n' <<< "$resolved" | grep -Fxq "$public_ip"; then
-        (( FORCE == 1 )) || die "O DNS de $domain não aponta para $public_ip. Corrija o registro A ou use --force."
-        warn 'DNS divergente; continuando por solicitação.'
+resolved_ipv4_csv() {
+    local domain="$1"
+    getent ahostsv4 "$domain" 2>/dev/null | awk '{print $1}' | LC_ALL=C sort -u | paste -sd, -
+}
+
+dns_matches_public_ip() {
+    local domain="$1" public_ip="$2" resolved="$3"
+    [[ -n "$resolved" ]] || return 1
+    [[ "$public_ip" == indisponível ]] && return 0
+    tr ',' '\n' <<< "$resolved" | grep -Fxq "$public_ip"
+}
+
+local_panel_port() {
+    local listen='127.0.0.1:8088' configured
+    if [[ -r "$SSHPLUS_CONF" ]]; then
+        configured="$(sed -nE 's/^[[:space:]]*SSHPLUS_PANEL_LISTEN="?([^"#[:space:]]+)"?.*$/\1/p' "$SSHPLUS_CONF" | tail -n1)"
+        [[ -n "$configured" ]] && listen="$configured"
+    fi
+    listen="${listen##*:}"
+    listen="${listen%]}"
+    valid_port "$listen" || listen=8088
+    printf '%s\n' "$listen"
+}
+
+local_api_ok() {
+    local response port
+    port="$(local_panel_port)"
+    response="$(curl -fsS --max-time 5 "http://127.0.0.1:${port}/api/health" 2>/dev/null || true)"
+    jq -e '.ok == true' <<< "$response" >/dev/null 2>&1
+}
+
+port_listening() {
+    local port="$1"
+    command -v ss >/dev/null 2>&1 || return 1
+    ss -H -lnt 2>/dev/null | awk -v port=":$port" '$4 ~ port "$" {found=1} END{exit !found}'
+}
+
+cert_expiry_epoch() {
+    local cert_file="$1" raw
+    [[ -r "$cert_file" ]] || return 1
+    raw="$(openssl x509 -in "$cert_file" -noout -enddate 2>/dev/null | cut -d= -f2-)"
+    [[ -n "$raw" ]] || return 1
+    date -d "$raw" +%s
+}
+
+preflight_values() {
+    local domain="$1"
+    PREFLIGHT_PUBLIC_IP="$(get_public_ipv4)"
+    PREFLIGHT_RESOLVED="$(resolved_ipv4_csv "$domain")"
+    PREFLIGHT_DNS_OK=false
+    PREFLIGHT_LOCAL_API=false
+    PREFLIGHT_NGINX=false
+    PREFLIGHT_PORT80=false
+    PREFLIGHT_PORT443=false
+
+    dns_matches_public_ip "$domain" "$PREFLIGHT_PUBLIC_IP" "$PREFLIGHT_RESOLVED" && PREFLIGHT_DNS_OK=true
+    local_api_ok && PREFLIGHT_LOCAL_API=true
+    command -v nginx >/dev/null 2>&1 && nginx -t >/dev/null 2>&1 && PREFLIGHT_NGINX=true
+    port_listening 80 && PREFLIGHT_PORT80=true
+    port_listening 443 && PREFLIGHT_PORT443=true
+}
+
+show_preflight() {
+    [[ -n "$DOMAIN" ]] || die 'Informe --domain.'
+    DOMAIN="${DOMAIN,,}"
+    valid_domain "$DOMAIN" || die 'Domínio inválido. Use um FQDN como painel.exemplo.com.'
+    preflight_values "$DOMAIN"
+
+    if (( JSON_OUTPUT == 1 )); then
+        jq -cn \
+            --arg domain "$DOMAIN" \
+            --arg public_ip "$PREFLIGHT_PUBLIC_IP" \
+            --arg resolved "$PREFLIGHT_RESOLVED" \
+            --argjson dns_ok "$PREFLIGHT_DNS_OK" \
+            --argjson local_api "$PREFLIGHT_LOCAL_API" \
+            --argjson nginx "$PREFLIGHT_NGINX" \
+            --argjson port80 "$PREFLIGHT_PORT80" \
+            --argjson port443 "$PREFLIGHT_PORT443" \
+            '{ok:($dns_ok and $local_api and $nginx),domain:$domain,public_ip:$public_ip,resolved_ipv4:($resolved|split(",")|map(select(length>0))),checks:{dns:$dns_ok,local_api:$local_api,nginx:$nginx,port80_listening:$port80,port443_listening:$port443}}'
+    else
+        header 'Pré-verificação do painel HTTPS' "$DOMAIN"
+        printf '  IPv4 da VPS:        %s\n' "$PREFLIGHT_PUBLIC_IP"
+        printf '  DNS atual:          %s\n' "${PREFLIGHT_RESOLVED:-não resolvido}"
+        printf '  DNS corresponde:    %s\n' "$PREFLIGHT_DNS_OK"
+        printf '  API local:          %s\n' "$PREFLIGHT_LOCAL_API"
+        printf '  Nginx válido:       %s\n' "$PREFLIGHT_NGINX"
+        printf '  Porta 80 escutando: %s\n' "$PREFLIGHT_PORT80"
+        printf '  Porta 443 escutando:%s\n' " $PREFLIGHT_PORT443"
+    fi
+
+    [[ "$PREFLIGHT_LOCAL_API" == true && "$PREFLIGHT_NGINX" == true ]] || return 1
+    if [[ "$PREFLIGHT_DNS_OK" != true && $FORCE -ne 1 ]]; then
+        return 1
     fi
 }
 
@@ -159,26 +257,68 @@ open_firewall() {
 }
 
 show_status() {
-    local cert_file expiry='não disponível'
+    local cert_file expiry='não disponível' expiry_epoch=0 now days_remaining=-1 nginx_enabled=false cert_present=false
     read_public_config
+    [[ -L "$NGINX_ENABLED" ]] && nginx_enabled=true
+    if [[ -n "$SSHPLUS_PANEL_PUBLIC_DOMAIN" ]]; then
+        cert_file="/etc/letsencrypt/live/$SSHPLUS_PANEL_PUBLIC_DOMAIN/fullchain.pem"
+        if [[ -r "$cert_file" ]] && command -v openssl >/dev/null 2>&1; then
+            cert_present=true
+            expiry="$(openssl x509 -in "$cert_file" -noout -enddate 2>/dev/null | cut -d= -f2- || true)"
+            expiry_epoch="$(cert_expiry_epoch "$cert_file" 2>/dev/null || printf 0)"
+            now="$(date +%s)"
+            (( expiry_epoch > now )) && days_remaining=$(( (expiry_epoch - now) / 86400 ))
+        fi
+    fi
+
+    if (( JSON_OUTPUT == 1 )); then
+        jq -cn \
+            --arg enabled "$SSHPLUS_PANEL_PUBLIC_ENABLED" \
+            --arg domain "$SSHPLUS_PANEL_PUBLIC_DOMAIN" \
+            --arg email "$SSHPLUS_PANEL_PUBLIC_EMAIL" \
+            --arg expiry "$expiry" \
+            --argjson days_remaining "$days_remaining" \
+            --argjson nginx_enabled "$nginx_enabled" \
+            --argjson certificate_present "$cert_present" \
+            --arg nginx "$(service_status_text nginx.service)" \
+            --arg certbot "$(service_status_text certbot.timer)" \
+            '{ok:true,enabled:($enabled=="yes"),domain:$domain,email:$email,url:(if $domain=="" then null else "https://"+$domain end),certificate:{present:$certificate_present,expires:$expiry,days_remaining:$days_remaining},nginx:{site_enabled:$nginx_enabled,service:$nginx},certbot_timer:$certbot}'
+        return
+    fi
+
     header 'Painel público HTTPS' 'Acesso externo opcional'
     printf '  Ativado:     %s\n' "$SSHPLUS_PANEL_PUBLIC_ENABLED"
     printf '  Domínio:     %s\n' "${SSHPLUS_PANEL_PUBLIC_DOMAIN:-não configurado}"
     printf '  Configuração:%s\n' " $PUBLIC_CONF"
-    printf '  Site Nginx:  %s\n' "$([[ -L "$NGINX_ENABLED" ]] && echo habilitado || echo desabilitado)"
-    if [[ -n "$SSHPLUS_PANEL_PUBLIC_DOMAIN" ]]; then
-        cert_file="/etc/letsencrypt/live/$SSHPLUS_PANEL_PUBLIC_DOMAIN/fullchain.pem"
-        if [[ -r "$cert_file" ]] && command -v openssl >/dev/null 2>&1; then
-            expiry="$(openssl x509 -in "$cert_file" -noout -enddate 2>/dev/null | cut -d= -f2- || true)"
-        fi
-        printf '  URL:         https://%s\n' "$SSHPLUS_PANEL_PUBLIC_DOMAIN"
-    fi
+    printf '  Site Nginx:  %s\n' "$([[ "$nginx_enabled" == true ]] && echo habilitado || echo desabilitado)"
+    [[ -n "$SSHPLUS_PANEL_PUBLIC_DOMAIN" ]] && printf '  URL:         https://%s\n' "$SSHPLUS_PANEL_PUBLIC_DOMAIN"
     printf '  Certificado: %s\n' "$expiry"
+    (( days_remaining >= 0 )) && printf '  Validade:    %s dia(s)\n' "$days_remaining"
     printf '  Nginx:       %s\n' "$(service_status_text nginx.service)"
     printf '  Certbot:     %s\n' "$(service_status_text certbot.timer)"
 }
 
-enable_public() {
+backup_item() {
+    local path="$1" name="$2" backup_dir="$3"
+    if [[ -e "$path" || -L "$path" ]]; then
+        cp -a "$path" "$backup_dir/$name"
+    else
+        : > "$backup_dir/$name.absent"
+    fi
+}
+
+restore_item() {
+    local path="$1" name="$2" backup_dir="$3"
+    rm -f "$path"
+    if [[ -e "$backup_dir/$name" || -L "$backup_dir/$name" ]]; then
+        cp -a "$backup_dir/$name" "$path"
+    fi
+}
+
+enable_public() (
+    local backup_dir fullchain privkey php_socket transaction_active=0 committed=0 rc
+    local -a certbot_args curl_args
+
     [[ -n "$DOMAIN" && -n "$EMAIL" ]] || die 'Informe --domain e --email.'
     DOMAIN="${DOMAIN,,}"
     valid_domain "$DOMAIN" || die 'Domínio inválido. Use um FQDN como painel.exemplo.com.'
@@ -190,10 +330,18 @@ enable_public() {
     sshplus_supported_ubuntu "${VERSION_ID:-}" || die 'Use Ubuntu 24.04 ou 26.04 LTS.'
 
     header 'Ativar painel público HTTPS' "$DOMAIN"
-    check_dns "$DOMAIN"
     ensure_local_panel
-    apt_install certbot
+    preflight_values "$DOMAIN"
+    [[ "$PREFLIGHT_LOCAL_API" == true ]] || die 'A API local não respondeu; execute sudo sshplus --panel-repair.'
+    [[ "$PREFLIGHT_NGINX" == true ]] || die 'A configuração atual do Nginx é inválida.'
+    if [[ "$PREFLIGHT_DNS_OK" != true ]]; then
+        printf '  IPv4 da VPS: %s\n' "$PREFLIGHT_PUBLIC_IP"
+        printf '  DNS atual:   %s\n' "${PREFLIGHT_RESOLVED:-não resolvido}"
+        (( FORCE == 1 )) || die "O DNS de $DOMAIN não aponta para o IPv4 da VPS. Corrija o registro A ou use --force."
+        warn 'DNS divergente; continuando por solicitação.'
+    fi
 
+    apt_install certbot
     install -d -m 0755 /etc/nginx/sites-available /etc/nginx/sites-enabled
     install -d -m 0755 "$ACME_ROOT/.well-known/acme-challenge"
     touch "$SSHPLUS_LOG_DIR/panel-public-access.log" "$SSHPLUS_LOG_DIR/panel-public-error.log"
@@ -202,8 +350,25 @@ enable_public() {
 
     backup_dir="$SSHPLUS_BACKUP_DIR/panel-public/$(date +%Y%m%d-%H%M%S)"
     install -d -m 0700 "$backup_dir"
-    [[ -e "$NGINX_AVAILABLE" ]] && cp -a "$NGINX_AVAILABLE" "$backup_dir/" || true
-    [[ -e "$PUBLIC_CONF" ]] && cp -a "$PUBLIC_CONF" "$backup_dir/" || true
+    backup_item "$NGINX_AVAILABLE" nginx-available "$backup_dir"
+    backup_item "$NGINX_ENABLED" nginx-enabled "$backup_dir"
+    backup_item "$PUBLIC_CONF" panel-public.conf "$backup_dir"
+    transaction_active=1
+
+    rollback_transaction() {
+        rc=$?
+        trap - EXIT
+        if (( transaction_active == 1 && committed == 0 && rc != 0 )); then
+            warn 'Falha durante a ativação; restaurando a configuração anterior.'
+            restore_item "$NGINX_AVAILABLE" nginx-available "$backup_dir"
+            restore_item "$NGINX_ENABLED" nginx-enabled "$backup_dir"
+            restore_item "$PUBLIC_CONF" panel-public.conf "$backup_dir"
+            nginx -t >/dev/null 2>&1 && systemctl reload nginx.service >/dev/null 2>&1 || true
+            warn "Rollback concluído a partir de $backup_dir."
+        fi
+        exit "$rc"
+    }
+    trap rollback_transaction EXIT
 
     write_acme_nginx "$DOMAIN"
     ln -sfn "$NGINX_AVAILABLE" "$NGINX_ENABLED"
@@ -224,35 +389,83 @@ enable_public() {
     nginx -t
     systemctl enable --now certbot.timer >/dev/null 2>&1 || true
     systemctl reload nginx.service
-    write_public_config yes "$DOMAIN" "$EMAIL"
 
+    curl_args=(-fsS --max-time 10 --resolve "$DOMAIN:443:127.0.0.1")
+    (( STAGING == 1 )) && curl_args+=(-k)
+    curl "${curl_args[@]}" "https://$DOMAIN/api/health" | jq -e '.ok == true' >/dev/null || \
+        die 'HTTPS foi configurado, mas a API não respondeu no teste local.'
+
+    write_public_config yes "$DOMAIN" "$EMAIL"
     if [[ -f /root/sshplus-panel-credentials.txt ]]; then
         sed -i '/^Acesso HTTPS:/d' /root/sshplus-panel-credentials.txt
         printf 'Acesso HTTPS: https://%s\n' "$DOMAIN" >> /root/sshplus-panel-credentials.txt
         chmod 0600 /root/sshplus-panel-credentials.txt
     fi
 
-    curl_args=(-fsS --resolve "$DOMAIN:443:127.0.0.1")
-    (( STAGING == 1 )) && curl_args+=(-k)
-    curl "${curl_args[@]}" "https://$DOMAIN/api/health" | jq -e '.ok == true' >/dev/null || \
-        die 'HTTPS foi configurado, mas a API não respondeu no teste local.'
-
+    committed=1
     ok "Painel público ativado em https://$DOMAIN"
-    printf '  O painel local continua em http://127.0.0.1:8088.\n'
+    printf '  O painel local continua em http://127.0.0.1:%s.\n' "$(local_panel_port)"
     printf '  Backup anterior: %s\n' "$backup_dir"
-}
+)
 
-disable_public() {
+disable_public() (
+    local domain backup_dir committed=0 rc
     read_public_config
     domain="$SSHPLUS_PANEL_PUBLIC_DOMAIN"
+    backup_dir="$SSHPLUS_BACKUP_DIR/panel-public/disable-$(date +%Y%m%d-%H%M%S)"
+    install -d -m 0700 "$backup_dir"
+    backup_item "$NGINX_AVAILABLE" nginx-available "$backup_dir"
+    backup_item "$NGINX_ENABLED" nginx-enabled "$backup_dir"
+    backup_item "$PUBLIC_CONF" panel-public.conf "$backup_dir"
+
+    rollback_disable() {
+        rc=$?
+        trap - EXIT
+        if (( committed == 0 && rc != 0 )); then
+            warn 'Falha ao desativar; restaurando a configuração HTTPS anterior.'
+            restore_item "$NGINX_AVAILABLE" nginx-available "$backup_dir"
+            restore_item "$NGINX_ENABLED" nginx-enabled "$backup_dir"
+            restore_item "$PUBLIC_CONF" panel-public.conf "$backup_dir"
+            nginx -t >/dev/null 2>&1 && systemctl reload nginx.service >/dev/null 2>&1 || true
+        fi
+        exit "$rc"
+    }
+    trap rollback_disable EXIT
+
     rm -f "$NGINX_ENABLED" "$NGINX_AVAILABLE"
     nginx -t
     systemctl reload nginx.service
     write_public_config no "$domain" "$SSHPLUS_PANEL_PUBLIC_EMAIL"
+    committed=1
+
     if (( PURGE_CERTIFICATE == 1 )) && [[ -n "$domain" ]] && command -v certbot >/dev/null 2>&1; then
         certbot delete --cert-name "$domain" --non-interactive || warn 'Não foi possível remover o certificado automaticamente.'
     fi
     ok 'Acesso público desativado. O painel local e o túnel SSH permanecem disponíveis.'
+    printf '  Backup: %s\n' "$backup_dir"
+)
+
+
+reconfigure_public() {
+    local domain fullchain privkey php_socket
+    read_public_config
+    [[ "$SSHPLUS_PANEL_PUBLIC_ENABLED" == yes ]] || die 'O painel público não está ativado.'
+    domain="$SSHPLUS_PANEL_PUBLIC_DOMAIN"
+    valid_domain "$domain" || die 'Domínio salvo na configuração é inválido.'
+    [[ -r /etc/os-release ]] || die 'Sistema operacional não identificado.'
+    # shellcheck disable=SC1091
+    source /etc/os-release
+    sshplus_supported_ubuntu "${VERSION_ID:-}" || die 'Use Ubuntu 24.04 ou 26.04 LTS.'
+    fullchain="/etc/letsencrypt/live/$domain/fullchain.pem"
+    privkey="/etc/letsencrypt/live/$domain/privkey.pem"
+    [[ -s "$fullchain" && -s "$privkey" ]] || die 'Certificado HTTPS não encontrado.'
+    php_socket="$(sshplus_php_fpm_socket "${VERSION_ID:-}")"
+    install -d -m 0755 /etc/nginx/sites-available /etc/nginx/sites-enabled
+    render_public_nginx "$domain" "$php_socket" "$fullchain" "$privkey"
+    ln -sfn "$NGINX_AVAILABLE" "$NGINX_ENABLED"
+    nginx -t
+    systemctl reload nginx.service
+    ok "Configuração HTTPS reaplicada para https://$domain"
 }
 
 renew_certificate() {
@@ -263,11 +476,20 @@ renew_certificate() {
     ok 'Renovação verificada e Nginx recarregado.'
 }
 
+test_renewal() {
+    command -v certbot >/dev/null 2>&1 || die 'Certbot não está instalado.'
+    certbot renew --dry-run
+    ok 'Simulação de renovação concluída.'
+}
+
 case "$ACTION" in
     status) show_status ;;
+    preflight) show_preflight ;;
     enable) enable_public ;;
     disable) disable_public ;;
+    reconfigure) reconfigure_public ;;
     renew) renew_certificate ;;
+    test-renewal) test_renewal ;;
     help|-h|--help) usage ;;
     *) usage >&2; die "Ação inválida: $ACTION" ;;
 esac

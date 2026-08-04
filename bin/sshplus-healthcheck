@@ -213,9 +213,32 @@ if [[ "$panel_enabled" == yes ]]; then
         public_enabled="$(sed -nE 's/^SSHPLUS_PANEL_PUBLIC_ENABLED="?([^"]+)"?$/\1/p' "$public_conf" | tail -n1)"
         public_domain="$(sed -nE 's/^SSHPLUS_PANEL_PUBLIC_DOMAIN="?([^"]*)"?$/\1/p' "$public_conf" | tail -n1)"
         if [[ "$public_enabled" == yes ]]; then
+            cert_file="/etc/letsencrypt/live/$public_domain/fullchain.pem"
             [[ -n "$public_domain" ]] && pass "Painel HTTPS configurado: $public_domain." || fail 'Painel público ativo sem domínio.'
             [[ -L /etc/nginx/sites-enabled/sshplus-panel-public ]] && pass 'Site HTTPS público habilitado no Nginx.' || fail 'Site HTTPS público ausente no Nginx.'
-            [[ -r "/etc/letsencrypt/live/$public_domain/fullchain.pem" && -r "/etc/letsencrypt/live/$public_domain/privkey.pem" ]] && pass 'Certificado HTTPS presente.' || fail 'Certificado HTTPS ausente.'
+            [[ -r "$cert_file" && -r "/etc/letsencrypt/live/$public_domain/privkey.pem" ]] && pass 'Certificado HTTPS presente.' || fail 'Certificado HTTPS ausente.'
+            if [[ -r "$cert_file" ]] && command_exists openssl; then
+                if openssl x509 -checkend 2592000 -noout -in "$cert_file" >/dev/null 2>&1; then
+                    pass 'Certificado HTTPS válido por mais de 30 dias.'
+                elif openssl x509 -checkend 0 -noout -in "$cert_file" >/dev/null 2>&1; then
+                    warn 'Certificado HTTPS expira em menos de 30 dias.'
+                else
+                    fail 'Certificado HTTPS expirado ou inválido.'
+                fi
+            fi
+            if command_exists getent && getent ahostsv4 "$public_domain" >/dev/null 2>&1; then
+                pass 'Domínio público resolve para IPv4.'
+            else
+                fail 'Domínio público não resolve para IPv4.'
+            fi
+            if command_exists ss; then
+                ss -H -lnt 2>/dev/null | awk '$4 ~ /:80$/ {found=1} END{exit !found}' && pass 'Porta HTTP 80 em escuta.' || warn 'Porta HTTP 80 não identificada em escuta.'
+                ss -H -lnt 2>/dev/null | awk '$4 ~ /:443$/ {found=1} END{exit !found}' && pass 'Porta HTTPS 443 em escuta.' || fail 'Porta HTTPS 443 não está em escuta.'
+            fi
+            if command_exists curl && [[ -n "$public_domain" ]]; then
+                https_api="$(curl -fsS --max-time 8 --resolve "$public_domain:443:127.0.0.1" "https://$public_domain/api/health" 2>/dev/null || true)"
+                jq -e '.ok == true' <<< "$https_api" >/dev/null 2>&1 && pass 'API HTTPS respondeu no teste local TLS.' || fail 'API HTTPS não respondeu corretamente no teste local TLS.'
+            fi
             check_unit_active certbot.timer 'Renovação automática do certificado'
         fi
     fi

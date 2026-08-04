@@ -10,8 +10,8 @@ O arquivo `VERSION` é a fonte de verdade. A tag Git correspondente deve ser a
 mesma versão com o prefixo `v`, por exemplo:
 
 ```text
-VERSION: 5.0.0
-Tag Git: v5.0.0
+VERSION: 5.3.0
+Tag Git: v5.3.0
 ```
 
 ## Preparar uma correção
@@ -39,14 +39,11 @@ Depois de revisar:
 
 ```bash
 git add .
-git commit -m "chore(release): v5.0.1"
-git tag -a v5.0.1 -m "SSHPlus Manager v5.0.1"
+git commit -m "chore(release): v5.3.0"
 git push origin main
-git push origin v5.0.1
 ```
 
-O envio da tag inicia `.github/workflows/release.yml`, que valida a tag, gera os
-artefatos e cria a GitHub Release automaticamente.
+O workflow `.github/workflows/release.yml` cria a tag correspondente quando necessário, gera os artefatos e publica a GitHub Release. Reexecuções da mesma versão atualizam os anexos com segurança, sem duplicar a Release.
 
 ## Versão específica
 

@@ -137,6 +137,8 @@ cat > "$TMPFILES_FILE" <<TMP
  f $SSHPLUS_LOG_DIR/operations.log 0640 root adm -
  f $SSHPLUS_LOG_DIR/panel-access.log 0640 root adm -
  f $SSHPLUS_LOG_DIR/panel-error.log 0640 root adm -
+ f $SSHPLUS_LOG_DIR/panel-public-access.log 0640 root adm -
+ f $SSHPLUS_LOG_DIR/panel-public-error.log 0640 root adm -
  f $SSHPLUS_LOG_DIR/php-error.log 0660 root $API_GROUP -
 TMP
 sed -i 's/^ //' "$TMPFILES_FILE"
@@ -205,6 +207,9 @@ fi
 
 if [[ "$SSHPLUS_PANEL_ENABLED" == yes && $SKIP_PANEL -eq 0 ]]; then
     SSHPLUS_CORE_REPAIR_ACTIVE=1 "$SSHPLUS_HOME/bin/sshplus-panel-repair"
+    if [[ -r "$SSHPLUS_CONFIG_DIR/panel-public.conf" ]] && grep -q '^SSHPLUS_PANEL_PUBLIC_ENABLED="yes"$' "$SSHPLUS_CONFIG_DIR/panel-public.conf"; then
+        "$SSHPLUS_HOME/bin/sshplus-panel-public" reconfigure || warn 'Não foi possível reaplicar o painel HTTPS; o painel local permanece ativo.'
+    fi
 else
     warn 'Reparo do painel ignorado ou painel desativado.'
 fi

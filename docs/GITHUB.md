@@ -41,7 +41,7 @@ git config user.name "SEU NOME"
 git config user.email "SEU EMAIL DO GITHUB"
 git add .
 git update-index --chmod=+x install.sh uninstall.sh verify.sh scripts/*.sh bin/*
-git commit -m "feat: publicar SSHPlus Manager v5.0.0"
+git commit -m "feat: publicar SSHPlus Manager v5.3.0"
 ```
 
 ## 3. Ligar ao repositório remoto
@@ -86,12 +86,11 @@ Permita leitura e escrita para workflows ou confirme que o workflow pode usar
 
 ## 5. Publicar a primeira release
 
-A versão atual é lida de `VERSION`:
+A versão atual é lida de `VERSION`. Ao enviar um commit para `main`, o workflow **Release** valida o projeto, cria a tag correspondente quando ela ainda não existir e publica os artefatos. Em uma reexecução, os arquivos da mesma Release são substituídos de forma idempotente.
 
 ```bash
 cat VERSION
-git tag -a v5.0.0 -m "SSHPlus Manager v5.0.0"
-git push origin v5.0.0
+git push origin main
 ```
 
 O workflow **Release** criará automaticamente:
@@ -136,5 +135,10 @@ sudo sshplus --check-update
 sudo sshplus --update
 ```
 
-O atualizador baixa apenas a Release publicada, valida o arquivo de checksums e
-executa a verificação do pacote antes da instalação.
+O atualizador baixa apenas a Release publicada, valida o arquivo de checksums, rejeita caminhos inseguros e confirma se a versão interna corresponde à tag.
+
+Para instalar uma versão fixada:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/twossh/sshplus-manager-ubuntu/main/install-online.sh | sudo bash -s -- --version 5.3.0
+```

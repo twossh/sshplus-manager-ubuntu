@@ -4,6 +4,31 @@ Todas as alterações relevantes deste projeto são registradas neste arquivo.
 
 ## [Unreleased]
 
+## [5.3.0] - 2026-08-04
+
+### Adicionado
+
+- Pré-verificação do painel público com `sudo sshplus --panel-public preflight --domain DOMINIO`.
+- Saída JSON para status e preflight do HTTPS.
+- Simulação de renovação com `sudo sshplus --panel-public test-renewal`.
+- Instalação online de versão fixada com `--version` ou `SSHPLUS_VERSION`.
+- Testes automatizados do seletor de Release e das proteções do instalador online.
+
+### Melhorado
+
+- Ativação HTTPS transacional, com restauração automática da configuração Nginx anterior quando Certbot, TLS ou API falharem.
+- Atualização por GitHub com bloqueio contra concorrência, validação da versão interna e rejeição de caminhos inseguros no pacote.
+- Release idempotente: reexecuções atualizam os artefatos com `--clobber` sem criar Releases duplicadas.
+- Nginx restrito ao único front controller `index.php`; outros arquivos PHP retornam 404.
+- Diagnóstico de validade do certificado, DNS, portas 80/443 e resposta local da API via TLS.
+- Reparo reaplica automaticamente o template HTTPS quando um domínio público já está ativo.
+- Aplicação instalada passa a preservar também `config/` e `systemd/` em `/opt/sshplus`, permitindo reparo completo após atualizações.
+
+### Corrigido
+
+- Evita execuções simultâneas do instalador online, atualizador e gerenciador HTTPS.
+- Inclui logs públicos do painel em `tmpfiles.d` e no ciclo normal de manutenção.
+
 ## [5.2.1] - 2026-08-04
 
 ### Corrigido

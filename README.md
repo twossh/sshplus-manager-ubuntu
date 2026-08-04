@@ -32,6 +32,12 @@ Depois de publicar a Release no GitHub:
 curl -fsSL https://raw.githubusercontent.com/twossh/sshplus-manager-ubuntu/main/install-online.sh | sudo bash
 ```
 
+Instalar uma versão específica:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/twossh/sshplus-manager-ubuntu/main/install-online.sh | sudo bash -s -- --version 5.3.0
+```
+
 Instalação local:
 
 ```bash
@@ -79,6 +85,12 @@ http://127.0.0.1:8088
 
 ### Domínio e HTTPS opcionais
 
+Antes da emissão, valide DNS, API local e Nginx:
+
+```bash
+sudo sshplus --panel-public preflight --domain painel.exemplo.com
+```
+
 Com o DNS já apontado para a VPS:
 
 ```bash
@@ -95,6 +107,8 @@ Comandos úteis:
 sudo sshplus --panel-status
 sudo sshplus --panel-reset-password
 sudo sshplus --panel-public status
+sudo sshplus --panel-public status --json
+sudo sshplus --panel-public test-renewal
 sudo sshplus --healthcheck
 ```
 

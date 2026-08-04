@@ -62,5 +62,10 @@ nginx -t -p "$TMP/" -c "$TMP/nginx.conf" >/dev/null
 grep -q 'listen 443 ssl http2;' "$TMP/panel-public.conf"
 grep -q 'Strict-Transport-Security' "$TMP/panel-public.conf"
 grep -q 'fastcgi_param HTTPS on;' "$TMP/panel-public.conf"
+grep -q 'location = /index.php' "$TMP/panel-public.conf"
+grep -A2 'location ~ \\.php' "$TMP/panel-public.conf" | grep -q 'return 404;'
+grep -q 'rollback_transaction' "$ROOT/bin/sshplus-panel-public"
+grep -q 'preflight)' "$ROOT/bin/sshplus-panel-public"
+grep -q 'test-renewal)' "$ROOT/bin/sshplus-panel-public"
 
 echo 'Template do painel público HTTPS aprovado.'

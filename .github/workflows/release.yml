@@ -12,14 +12,14 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.repository }}-${{ github.ref }}
+  group: release-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:
   release:
     name: Validar e publicar release
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     steps:
       - name: Obter código e tags
@@ -30,7 +30,7 @@ jobs:
       - name: Instalar ferramentas de validação
         run: |
           sudo apt-get update
-          sudo apt-get install --yes shellcheck zip sqlite3 php-cli sudo nginx openssl
+          sudo apt-get install --yes shellcheck zip sqlite3 php-cli sudo nginx openssl jq curl
 
       - name: Normalizar permissões dos scripts
         run: chmod +x install-online.sh install.sh uninstall.sh verify.sh scripts/*.sh bin/*
@@ -58,22 +58,41 @@ jobs:
           SSHPLUS_RUN_PANEL_INTEGRATION: "1"
         run: bash ./scripts/ci.sh
 
-      - name: Publicar GitHub Release quando ainda não existir
+      - name: Publicar ou atualizar GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
         shell: bash
         run: |
           set -euo pipefail
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            echo "Release $RELEASE_TAG já existe; nenhuma alteração necessária."
-            exit 0
+          mapfile -t assets < <(find dist -maxdepth 1 -type f \
+            \( -name '*.zip' -o -name '*.tar.gz' -o -name 'SHA256SUMS-release.txt' \) \
+            -print | LC_ALL=C sort)
+          (( ${#assets[@]} > 0 )) || {
+            echo 'Nenhum artefato de Release foi gerado.' >&2
+            exit 1
+          }
+
+          existing_tag_sha="$(git rev-list -n1 "$RELEASE_TAG" 2>/dev/null || true)"
+          if [[ -n "$existing_tag_sha" && "$existing_tag_sha" != "$GITHUB_SHA" ]]; then
+            echo "A tag $RELEASE_TAG já aponta para $existing_tag_sha, não para $GITHUB_SHA." >&2
+            exit 1
           fi
 
-          gh release create "$RELEASE_TAG" \
-            dist/*.zip \
-            dist/*.tar.gz \
-            dist/SHA256SUMS-release.txt \
-            --target "$GITHUB_SHA" \
-            --generate-notes \
-            --title "SSHPlus Manager $RELEASE_TAG"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
+            echo "Release $RELEASE_TAG atualizada com artefatos validados."
+          elif [[ -n "$existing_tag_sha" ]]; then
+            gh release create "$RELEASE_TAG" "${assets[@]}" \
+              --verify-tag \
+              --generate-notes \
+              --title "SSHPlus Manager $RELEASE_TAG"
+          else
+            gh release create "$RELEASE_TAG" "${assets[@]}" \
+              --target "$GITHUB_SHA" \
+              --generate-notes \
+              --title "SSHPlus Manager $RELEASE_TAG"
+          fi
+
+          gh release view "$RELEASE_TAG" --json url,tagName,name \
+            --jq '"Release publicada: " + .name + " — " + .url' >> "$GITHUB_STEP_SUMMARY"

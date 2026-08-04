@@ -98,7 +98,15 @@ check_for_updates() {
 
 verify_release_checksum() {
     local dir="$1" asset_name="$2" expected
-    expected="$(awk -v file="$asset_name" '$2 == file || $2 == "*" file {print $1; exit}' "$dir/SHA256SUMS-release.txt")"
+    expected="$(awk -v file="$asset_name" '
+        NF >= 2 {
+            checksum=$1
+            name=$2
+            sub(/^\*/, "", name)
+            sub(/^\.\//, "", name)
+            if (name == file) { print checksum; exit }
+        }
+    ' "$dir/SHA256SUMS-release.txt")"
     [[ "$expected" =~ ^[a-fA-F0-9]{64}$ ]] || {
         error 'O arquivo de checksums não contém o artefato esperado.'
         return 1
@@ -108,8 +116,11 @@ verify_release_checksum() {
 }
 
 update_from_github() (
-    local force="${1:-0}" repo info_line latest asset_name asset_url checksum_url current work source_dir
+    local force="${1:-0}" repo info_line latest asset_name asset_url checksum_url current work source_dir package_version
     require_root
+    install -d -m 0755 /run/lock
+    exec 8>/run/lock/sshplus-update.lock
+    flock -n 8 || { error 'Outra atualização do SSHPlus está em andamento.'; return 1; }
     repo="$(configured_repository)" || {
         warn 'Configure primeiro o repositório GitHub.'
         configure_repository || return 1
@@ -142,11 +153,20 @@ update_from_github() (
     curl -fL --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 60 \
         -o "$work/SHA256SUMS-release.txt" "$checksum_url"
     verify_release_checksum "$work" "$asset_name" || return 1
+    if tar -tzf "$work/$asset_name" | grep -Eq '(^/|(^|/)\.\.(/|$))'; then
+        error 'A Release contém caminhos inseguros e foi rejeitada.'
+        return 1
+    fi
     tar -xzf "$work/$asset_name" -C "$work"
     source_dir="$work/SSHPlus-Manager-Ubuntu-LTS"
     [[ -d "$source_dir" ]] || source_dir="$(find "$work" -mindepth 1 -maxdepth 1 -type d -name 'SSHPlus-Manager-Ubuntu-*' -print -quit)"
-    [[ -x "$source_dir/install.sh" && -x "$source_dir/verify.sh" ]] || {
+    [[ -x "$source_dir/install.sh" && -x "$source_dir/verify.sh" && -r "$source_dir/VERSION" ]] || {
         error 'Estrutura inesperada no pacote da Release.'
+        return 1
+    }
+    package_version="$(tr -d '\r\n' < "$source_dir/VERSION")"
+    [[ "$package_version" == "$latest" ]] || {
+        error "Versão interna do pacote ($package_version) não corresponde à Release ($latest)."
         return 1
     }
     info 'Executando validação do pacote baixado...'
