@@ -4,27 +4,37 @@ Todas as alterações relevantes deste projeto são registradas neste arquivo.
 
 ## [Unreleased]
 
+## [5.1.4] - 2026-08-04
+
+### Corrigido
+
+- Corrige o teste integrado do reparador no GitHub Actions, executando-o com `sudo` não interativo.
+- Mantém `sshplus-repair` restrito ao root em produção, sem enfraquecer a validação de segurança.
+- Evita a falha falsa `Execute como root` no runner de CI.
+
 ## [5.1.3] - 2026-08-04
 
 ### Adicionado
 
-- Reparador completo e idempotente com `sudo sshplus --repair`.
-- Reconstrução automática de `/etc/sshplus/sshplus.conf`, atalhos administrativos e unidades `systemd` ausentes.
-- Teste integrado do reparador em diretórios isolados, incluindo banco SQLite, timers e links simbólicos.
+- Reparo completo e idempotente com `sudo sshplus --repair`.
+- Reconstrução segura da configuração principal, atalhos administrativos e timers `systemd`.
+- Teste integrado do reparador em diretórios isolados.
 
 ### Corrigido
 
-- Instalações interrompidas que deixavam a aplicação em `/opt/sshplus`, mas sem configuração principal, timers ou comandos em `/usr/local`.
-- `--panel-repair` agora executa também o reparo da integração central antes de validar Nginx, PHP-FPM e API.
-- O instalador executa uma etapa final de autorreparo antes de concluir.
+- Completa instalações interrompidas sem apagar usuários, credenciais ou o banco SQLite.
 
 ## [5.1.2] - 2026-08-04
 
+### Adicionado
+
+- Comando `sudo sshplus --panel-repair` e diagnóstico ampliado da API local.
+- Teste integrado de login, sessão, agente privilegiado e SQLite.
+
 ### Corrigido
 
-- Login do painel não é mais interrompido quando a auditoria privilegiada está temporariamente indisponível.
-- Permissões, grupo do PHP-FPM, política sudoers, sessões PHP e integração com o agente root são reparados automaticamente.
-- Teste integrado de login válido, login inválido, API autenticada e ponte PHP/sudo/agente.
+- Falhas de auditoria do agente não bloqueiam mais logins válidos.
+- Ajusta permissões do painel, `sudoers`, PHP-FPM e arquivos de autenticação.
 
 ## [5.1.1] - 2026-08-04
 
