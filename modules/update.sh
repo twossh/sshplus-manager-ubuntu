@@ -39,13 +39,22 @@ github_latest_release_json() {
 }
 
 release_info() {
-    local repo="$1" json latest asset_name asset_url checksum_url
+    local repo="$1" json latest asset_name='' asset_url='' checksum_url candidate os_version
     json="$(github_latest_release_json "$repo")" || return 1
     latest="$(jq -r '.tag_name // empty' <<< "$json")"
     latest="${latest#v}"
     [[ "$latest" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 1
-    asset_name="SSHPlus-Manager-ubuntu-26.04-v${latest}.tar.gz"
-    asset_url="$(jq -r --arg name "$asset_name" '.assets[]? | select(.name == $name) | .browser_download_url' <<< "$json" | head -n1)"
+    os_version="$(sshplus_ubuntu_version)"
+    for candidate in \
+        "SSHPlus-Manager-ubuntu-lts-v${latest}.tar.gz" \
+        "SSHPlus-Manager-ubuntu-${os_version}-v${latest}.tar.gz" \
+        "SSHPlus-Manager-ubuntu-26.04-v${latest}.tar.gz"; do
+        asset_url="$(jq -r --arg name "$candidate" '.assets[]? | select(.name == $name) | .browser_download_url' <<< "$json" | head -n1)"
+        if [[ -n "$asset_url" && "$asset_url" != null ]]; then
+            asset_name="$candidate"
+            break
+        fi
+    done
     checksum_url="$(jq -r '.assets[]? | select(.name == "SHA256SUMS-release.txt") | .browser_download_url' <<< "$json" | head -n1)"
     [[ "$asset_url" == https://github.com/* && "$checksum_url" == https://github.com/* ]] || return 1
     printf '%s|%s|%s|%s\n' "$latest" "$asset_name" "$asset_url" "$checksum_url"
@@ -134,7 +143,8 @@ update_from_github() (
         -o "$work/SHA256SUMS-release.txt" "$checksum_url"
     verify_release_checksum "$work" "$asset_name" || return 1
     tar -xzf "$work/$asset_name" -C "$work"
-    source_dir="$work/SSHPlus-Manager-Ubuntu-26.04"
+    source_dir="$work/SSHPlus-Manager-Ubuntu-LTS"
+    [[ -d "$source_dir" ]] || source_dir="$(find "$work" -mindepth 1 -maxdepth 1 -type d -name 'SSHPlus-Manager-Ubuntu-*' -print -quit)"
     [[ -x "$source_dir/install.sh" && -x "$source_dir/verify.sh" ]] || {
         error 'Estrutura inesperada no pacote da Release.'
         return 1
@@ -200,7 +210,7 @@ rollback_apply() (
     if mv "${SSHPLUS_HOME}.rollback-new" "$SSHPLUS_HOME"; then
         rm -rf "${SSHPLUS_HOME}.rollback-old"
         systemctl daemon-reload
-        systemctl restart sshplus-expirer.timer sshplus-limiter.timer sshplus-metrics.timer nginx.service php8.5-fpm.service 2>/dev/null || true
+        systemctl restart sshplus-expirer.timer sshplus-limiter.timer sshplus-metrics.timer nginx.service "$(sshplus_php_fpm_service 2>/dev/null || printf 'php-fpm.service')" 2>/dev/null || true
         audit_log "$actor" "$source" update.rollback "$file" 1 "snapshot=$snapshot"
         return 0
     fi

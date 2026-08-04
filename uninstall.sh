@@ -25,7 +25,7 @@ rm -f /etc/nftables.d/sshplus-openvpn.nft /etc/sysctl.d/99-sshplus-network.conf 
 rm -f /etc/fail2ban/jail.d/sshplus.local /etc/logrotate.d/sshplus /etc/tmpfiles.d/sshplus.conf
 rm -f /etc/ssh/sshd_config.d/00-sshplus.conf
 rm -f /etc/nginx/sites-enabled/sshplus-panel /etc/nginx/sites-available/sshplus-panel
-rm -f /etc/sudoers.d/sshplus-api /etc/php/8.5/fpm/conf.d/99-sshplus.ini
+rm -f /etc/sudoers.d/sshplus-api /etc/php/8.3/fpm/conf.d/99-sshplus.ini /etc/php/8.5/fpm/conf.d/99-sshplus.ini
 rm -f /usr/local/sbin/sshplus /usr/local/bin/menu /usr/local/sbin/sshplus-agent /usr/local/sbin/sshplus-healthcheck
 rm -f /usr/local/sbin/sshplus-badvpn /usr/local/sbin/badvpn /usr/local/sbin/sshplus-slowdns /usr/local/sbin/slowdns
 rm -f /usr/local/sbin/badvpn-udpgw /usr/local/bin/badvpn-udpgw /usr/local/sbin/dnstt-server /usr/local/bin/dnstt-client
@@ -37,7 +37,7 @@ if (( PURGE_DATA == 1 )); then
  groupdel sshplus-api 2>/dev/null || true
 fi
 systemctl daemon-reload
-systemctl restart php8.5-fpm.service nginx.service fail2ban.service 2>/dev/null || true
+systemctl restart php8.3-fpm.service php8.5-fpm.service nginx.service fail2ban.service 2>/dev/null || true
 sysctl --system >/dev/null 2>&1 || true
 if [[ -x /usr/sbin/sshd ]] && /usr/sbin/sshd -t; then systemctl restart ssh.service 2>/dev/null || systemctl restart sshd.service 2>/dev/null || true; fi
 if (( PURGE_DATA == 1 )); then echo 'SSHPlus removido com dados e credenciais. Usuários Linux preservados.'; else echo 'SSHPlus removido. Dados, chaves, logs e backups preservados.'; fi

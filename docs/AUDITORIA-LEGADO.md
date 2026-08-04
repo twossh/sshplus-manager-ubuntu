@@ -14,4 +14,4 @@ A base enviada foi analisada antes da reescrita. Os principais pontos encontrado
 - Linha destrutiva no módulo de remoção que poderia executar `rm -rf /bin/` caso um arquivo de controle estivesse ausente.
 - Desinstalador removendo pacotes compartilhados do servidor, mesmo quando não instalados exclusivamente pelo sistema.
 
-A versão 4 elimina esses comportamentos e mantém somente componentes administráveis, auditáveis e compatíveis com Ubuntu 26.04.
+A versão 4 elimina esses comportamentos e mantém somente componentes administráveis, auditáveis e compatíveis com Ubuntu 24.04/26.04.

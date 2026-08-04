@@ -37,6 +37,63 @@ sshplus_version() {
     printf '%s\n' "$version"
 }
 
+
+sshplus_ubuntu_version() {
+    local version="${SSHPLUS_UBUNTU_VERSION_ID:-}"
+    if [[ -z "$version" && -r /etc/os-release ]]; then
+        version="$(sed -nE 's/^VERSION_ID="?([^"[:space:]]+)"?.*$/\1/p' /etc/os-release | head -n1)"
+    fi
+    printf '%s\n' "$version"
+}
+
+sshplus_supported_ubuntu() {
+    local version="${1:-$(sshplus_ubuntu_version)}"
+    [[ "$version" == 24.04 || "$version" == 26.04 ]]
+}
+
+sshplus_php_version() {
+    local os_version="${1:-$(sshplus_ubuntu_version)}"
+    case "$os_version" in
+        24.04) printf '8.3\n' ;;
+        26.04) printf '8.5\n' ;;
+        *) return 1 ;;
+    esac
+}
+
+sshplus_php_fpm_service() {
+    local version
+    version="$(sshplus_php_version "${1:-}")" || return 1
+    printf 'php%s-fpm.service\n' "$version"
+}
+
+sshplus_php_fpm_socket() {
+    local version
+    version="$(sshplus_php_version "${1:-}")" || return 1
+    printf '/run/php/php%s-fpm.sock\n' "$version"
+}
+
+sshplus_php_cli_binary() {
+    local version
+    version="$(sshplus_php_version "${1:-}")" || return 1
+    if command -v "php${version}" >/dev/null 2>&1; then
+        command -v "php${version}"
+    elif command -v php >/dev/null 2>&1; then
+        command -v php
+    else
+        printf 'php%s\n' "$version"
+    fi
+}
+
+sshplus_php_fpm_binary() {
+    local version
+    version="$(sshplus_php_version "${1:-}")" || return 1
+    if command -v "php-fpm${version}" >/dev/null 2>&1; then
+        command -v "php-fpm${version}"
+    else
+        printf 'php-fpm%s\n' "$version"
+    fi
+}
+
 log() {
     local level="$1"; shift
     local msg="$*"

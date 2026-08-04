@@ -69,10 +69,10 @@ fi
 if [[ -r /etc/os-release ]]; then
     # shellcheck disable=SC1091
     source /etc/os-release
-    if [[ "${ID:-}" == ubuntu && "${VERSION_ID:-}" == 26.04 ]]; then
-        pass "Sistema compatível: ${PRETTY_NAME:-Ubuntu 26.04}."
+    if [[ "${ID:-}" == ubuntu && ( "${VERSION_ID:-}" == 24.04 || "${VERSION_ID:-}" == 26.04 ) ]]; then
+        pass "Sistema compatível: ${PRETTY_NAME:-Ubuntu LTS}."
     else
-        fail "Sistema fora do alvo: ${PRETTY_NAME:-desconhecido}; esperado Ubuntu 26.04."
+        fail "Sistema fora do alvo: ${PRETTY_NAME:-desconhecido}; esperado Ubuntu 24.04 ou 26.04."
     fi
 else
     fail 'Não foi possível identificar o sistema operacional.'
@@ -158,12 +158,22 @@ if [[ "$panel_enabled" == yes ]]; then
         *) fail "Painel configurado em endereço não local: $panel_listen." ;;
     esac
     check_unit_active nginx.service 'Nginx'
-    check_unit_active php8.5-fpm.service 'PHP 8.5 FPM'
-    command_exists nginx && nginx -t >/dev/null 2>&1 && pass 'Configuração Nginx válida.' || fail 'Configuração Nginx inválida ou comando ausente.'
-    if command_exists php-fpm8.5; then
-        php-fpm8.5 -t >/dev/null 2>&1 && pass 'Configuração PHP-FPM válida.' || fail 'Configuração PHP-FPM inválida.'
+    os_version="${VERSION_ID:-$(sed -nE 's/^VERSION_ID="?([^"[:space:]]+)"?.*$/\1/p' /etc/os-release | head -n1)}"
+    case "$os_version" in
+        24.04) php_version=8.3 ;;
+        26.04) php_version=8.5 ;;
+        *) php_version='' ;;
+    esac
+    if [[ -n "$php_version" ]]; then
+        check_unit_active "php${php_version}-fpm.service" "PHP ${php_version} FPM"
     else
-        warn 'php-fpm8.5 não encontrado para teste de configuração.'
+        fail 'Não foi possível determinar a versão PHP esperada.'
+    fi
+    command_exists nginx && nginx -t >/dev/null 2>&1 && pass 'Configuração Nginx válida.' || fail 'Configuração Nginx inválida ou comando ausente.'
+    if [[ -n "$php_version" ]] && command_exists "php-fpm${php_version}"; then
+        "php-fpm${php_version}" -t >/dev/null 2>&1 && pass 'Configuração PHP-FPM válida.' || fail 'Configuração PHP-FPM inválida.'
+    else
+        warn "php-fpm${php_version:-esperado} não encontrado para teste de configuração."
     fi
     auth_file="$SSHPLUS_CONFIG_DIR/panel-auth.json"
     if [[ -f "$auth_file" ]]; then

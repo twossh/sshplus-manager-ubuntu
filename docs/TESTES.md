@@ -14,7 +14,7 @@ O verificador cobre:
 - Finais de linha CRLF.
 - Arquivos graváveis por qualquer usuário.
 - Ausência de dependências TUI e técnicas legadas.
-- Compatibilidade do ambiente com Ubuntu 26.04.
+- Compatibilidade do ambiente com Ubuntu 24.04/26.04.
 - Estrutura das unidades `systemd`.
 - Inclusão, leitura e remoção atômicas no banco de usuários.
 - Validação da configuração OpenSSH atual, quando executado como root.

@@ -21,7 +21,7 @@ $version = trim((string) @file_get_contents('/opt/sshplus/VERSION')) ?: '5.0.0';
     <div class="brand-mark">S+</div>
     <p class="eyebrow">SERVIDOR SEGURO</p>
     <h1>SSHPlus Manager</h1>
-    <p class="muted">Administração local do Ubuntu 26.04</p>
+    <p class="muted">Administração local do Ubuntu 24.04/26.04 LTS</p>
     <label>Usuário<input name="username" autocomplete="username" required></label>
     <label>Senha<input name="password" type="password" autocomplete="current-password" required></label>
     <button type="submit">Entrar</button>

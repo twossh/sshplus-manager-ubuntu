@@ -4,6 +4,20 @@ Todas as alterações relevantes deste projeto são registradas neste arquivo.
 
 ## [Unreleased]
 
+## [5.1.0] - 2026-08-04
+
+### Adicionado
+
+- Suporte oficial ao Ubuntu Server 24.04 LTS, mantendo Ubuntu 26.04 LTS.
+- Seleção automática do PHP 8.3 no Ubuntu 24.04 e PHP 8.5 no Ubuntu 26.04.
+- Artefatos genéricos `ubuntu-lts` e aliases compatíveis para cada LTS.
+- Diagnóstico dinâmico do serviço, socket e binário PHP-FPM.
+
+### Alterado
+
+- Instalador online, atualizador, rollback, painel, API e desinstalador passaram a detectar a plataforma.
+- Pacotes principais usam a pasta `SSHPlus-Manager-Ubuntu-LTS`.
+
 ## [5.0.2] - 2026-08-04
 
 ### Adicionado
@@ -11,7 +25,7 @@ Todas as alterações relevantes deste projeto são registradas neste arquivo.
 - Diagnóstico pós-instalação com `sudo sshplus --healthcheck`.
 - Verificação de serviços, timers, SQLite, painel local, API, permissões, BadVPN e SlowDNS.
 - Relatório seguro em `/var/log/sshplus`, sem exibir credenciais ou chaves.
-- Guia de homologação para a primeira implantação em Ubuntu 26.04.
+- Guia de homologação para a primeira implantação em Ubuntu 24.04/26.04.
 
 ## [5.0.1] - 2026-08-04
 
@@ -78,7 +92,7 @@ Todas as alterações relevantes deste projeto são registradas neste arquivo.
 - Remoção completa da interface baseada em caixas de diálogo.
 - Retorno à interface CLI nativa, sem dependência externa de TUI.
 - Nova camada comum para cabeçalhos, mensagens, confirmações, senhas, cores e validações.
-- Instalador atômico e otimizações para Ubuntu 26.04/OpenSSH 10.2p1.
+- Instalador atômico e otimizações para Ubuntu 24.04/26.04/OpenSSH 10.2p1.
 - Inclusão de `tmpfiles.d`, `logrotate` e endurecimento dos serviços systemd.
 - Backup e restauração com validação de integridade e caminhos seguros.
 

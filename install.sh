@@ -42,19 +42,21 @@ require_root
 [[ -r /etc/os-release ]] || die 'Sistema operacional não identificado.'
 source /etc/os-release
 [[ "${ID:-}" == ubuntu ]] || die 'Este instalador é exclusivo para Ubuntu.'
-if [[ "${VERSION_ID:-}" != '26.04' ]]; then
-    warn "Alvo oficial: Ubuntu 26.04 LTS; detectado: ${PRETTY_NAME:-desconhecido}."
-    (( ASSUME_YES == 1 )) || confirm 'Continuar mesmo assim?' || exit 1
-fi
+sshplus_supported_ubuntu "${VERSION_ID:-}" || die "Versão não suportada: ${PRETTY_NAME:-desconhecido}. Use Ubuntu 24.04 LTS ou 26.04 LTS."
+export SSHPLUS_UBUNTU_VERSION_ID="${VERSION_ID:-}"
+PHP_VERSION="$(sshplus_php_version "${VERSION_ID:-}")"
+PHP_FPM_SERVICE="$(sshplus_php_fpm_service "${VERSION_ID:-}")"
+PHP_FPM_SOCKET="$(sshplus_php_fpm_socket "${VERSION_ID:-}")"
+PHP_CLI_BINARY="php${PHP_VERSION}"
 valid_username "$PANEL_USER" || die 'Usuário inicial do painel inválido.'
-[[ "$PANEL_LISTEN" =~ ^127\.0\.0\.1:([0-9]{1,5})$ || "$PANEL_LISTEN" =~ ^\[::1\]:([0-9]{1,5})$ ]] || die 'O painel v5.0 deve escutar apenas em loopback.'
+[[ "$PANEL_LISTEN" =~ ^127\.0\.0\.1:([0-9]{1,5})$ || "$PANEL_LISTEN" =~ ^\[::1\]:([0-9]{1,5})$ ]] || die 'O painel deve escutar apenas em loopback.'
 panel_port="${BASH_REMATCH[1]}"; valid_port "$panel_port" || die 'Porta do painel inválida.'
 [[ -z "$PANEL_PASSWORD" ]] || valid_password "$PANEL_PASSWORD" || die 'A senha do painel precisa ter no mínimo 8 caracteres.'
 
-header "SSHPlus Manager $(tr -d '\r\n' < "$BASE_DIR/VERSION")" 'Plataforma modular para Ubuntu 26.04 LTS'
+header "SSHPlus Manager $(tr -d '\r\n' < "$BASE_DIR/VERSION")" "Plataforma modular para Ubuntu ${VERSION_ID} LTS — PHP ${PHP_VERSION}"
 (( SKIP_APT_UPDATE == 1 )) && SSHPLUS_APT_UPDATED=1
 packages=(openssh-server curl jq bc procps iproute2 util-linux tar gzip ca-certificates ufw fail2ban logrotate sqlite3 sudo openssl iputils-ping)
-if (( PANEL_ENABLED == 1 )); then packages+=(nginx php8.5-fpm php8.5-cli); fi
+if (( PANEL_ENABLED == 1 )); then packages+=(nginx "php${PHP_VERSION}-fpm" "php${PHP_VERSION}-cli"); fi
 apt_install "${packages[@]}"
 
 stamp="$(date '+%Y%m%d-%H%M%S')"; backup_dir="$BACKUP_ROOT/$stamp"
@@ -166,7 +168,7 @@ if (( PANEL_ENABLED == 1 )); then
             rm -f "$auth_file.tmp"
         else
             if [[ -z "$PANEL_PASSWORD" ]]; then PANEL_PASSWORD="$(openssl rand -hex 16)"; fi
-            password_hash="$(php8.5 -r 'echo password_hash($argv[1], PASSWORD_DEFAULT);' "$PANEL_PASSWORD")"
+            password_hash="$("$PHP_CLI_BINARY" -r 'echo password_hash($argv[1], PASSWORD_DEFAULT);' "$PANEL_PASSWORD")"
             db_api_user_upsert "$PANEL_USER" "$password_hash" admin
             jq -n --arg username "$PANEL_USER" --arg password_hash "$password_hash" \
                 '{version:1,accounts:[{username:$username,password_hash:$password_hash,role:"admin",active:true}]}' > "$auth_file.tmp"
@@ -201,13 +203,12 @@ ln -sfn "$TARGET/bin/sshplus-healthcheck" /usr/local/sbin/sshplus-healthcheck
 if (( PANEL_ENABLED == 1 )); then
     install -m 0440 "$BASE_DIR/sudoers/sshplus-api" /etc/sudoers.d/sshplus-api
     visudo -cf /etc/sudoers.d/sshplus-api >/dev/null || die 'Configuração sudoers inválida.'
-    fpm_socket='/run/php/php8.5-fpm.sock'
-    sed -e "s|@PANEL_LISTEN@|$PANEL_LISTEN|g" -e "s|@PHP_FPM_SOCKET@|$fpm_socket|g" \
+    sed -e "s|@PANEL_LISTEN@|$PANEL_LISTEN|g" -e "s|@PHP_FPM_SOCKET@|$PHP_FPM_SOCKET|g" \
         "$BASE_DIR/nginx/sshplus-panel.conf.template" > /etc/nginx/sites-available/sshplus-panel
     ln -sfn /etc/nginx/sites-available/sshplus-panel /etc/nginx/sites-enabled/sshplus-panel
     rm -f /etc/nginx/sites-enabled/default
-    install -d -m 0755 /etc/php/8.5/fpm/conf.d
-    cat > /etc/php/8.5/fpm/conf.d/99-sshplus.ini <<'PHPINI'
+    install -d -m 0755 "/etc/php/${PHP_VERSION}/fpm/conf.d"
+    cat > "/etc/php/${PHP_VERSION}/fpm/conf.d/99-sshplus.ini" <<'PHPINI'
 expose_php=Off
 session.cookie_httponly=1
 session.cookie_samesite=Strict
@@ -231,7 +232,7 @@ fi
 systemctl daemon-reload
 systemctl enable --now sshplus-expirer.timer sshplus-limiter.timer sshplus-metrics.timer
 systemctl restart "$(ssh_unit)"
-if (( PANEL_ENABLED == 1 )); then systemctl enable --now php8.5-fpm.service nginx.service; systemctl restart php8.5-fpm.service nginx.service; fi
+if (( PANEL_ENABLED == 1 )); then systemctl enable --now "$PHP_FPM_SERVICE" nginx.service; systemctl restart "$PHP_FPM_SERVICE" nginx.service; fi
 
 install -d -m 0755 /etc/fail2ban/jail.d
 cat > /etc/fail2ban/jail.d/sshplus.local <<CONF

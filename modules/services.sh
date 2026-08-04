@@ -10,7 +10,7 @@ dropbear.service|Dropbear
 openvpn-server@sshplus.service|OpenVPN
 fail2ban.service|Fail2ban
 nginx.service|Painel Nginx
-php8.5-fpm.service|PHP 8.5 FPM
+PHP_FPM_PLACEHOLDER|PHP FPM
 cron.service|Cron
 sshplus-openvpn-nat.service|NAT OpenVPN
 sshplus-badvpn.service|BadVPN UDPGW
@@ -24,6 +24,10 @@ show_services() {
     printf '%-24s %-15s %-12s\n' 'SERVIÇO' 'UNIDADE' 'STATUS'
     printf '%-24s %-15s %-12s\n' '------------------------' '---------------' '------------'
     while IFS='|' read -r unit label; do
+        if [[ "$unit" == 'PHP_FPM_PLACEHOLDER' ]]; then
+            unit="$(sshplus_php_fpm_service)"
+            label="PHP $(sshplus_php_version) FPM"
+        fi
         if [[ "$unit" == 'ssh.service' ]] && ! service_exists ssh.service; then
             unit='sshd.service'
         fi
@@ -36,6 +40,10 @@ restart_service_menu() {
     local units=() labels=() unit label i=1 choice
     header 'Reiniciar serviço'
     while IFS='|' read -r unit label; do
+        if [[ "$unit" == 'PHP_FPM_PLACEHOLDER' ]]; then
+            unit="$(sshplus_php_fpm_service)"
+            label="PHP $(sshplus_php_version) FPM"
+        fi
         if [[ "$unit" == 'ssh.service' ]]; then unit="$(ssh_unit)"; fi
         if service_exists "$unit"; then
             units+=("$unit"); labels+=("$label")

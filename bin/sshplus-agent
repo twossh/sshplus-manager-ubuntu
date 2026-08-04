@@ -13,6 +13,8 @@ source "$SSHPLUS_HOME/modules/update.sh"
 require_root
 load_config
 ensure_runtime_dirs
+PHP_VERSION="$(sshplus_php_version)"
+PHP_FPM_SERVICE="$(sshplus_php_fpm_service)"
 
 action="${1:-}"
 [[ "$action" =~ ^[a-z][a-z0-9._-]{0,63}$ ]] || { jq -n '{ok:false,error:"ação inválida"}'; exit 2; }
@@ -29,7 +31,7 @@ json_ok() { jq -n --arg message "${1:-ok}" '{ok:true,message:$message}'; }
 
 service_allowed() {
     case "$1" in
-        ssh.service|sshd.service|nginx.service|php8.5-fpm.service|fail2ban.service|sshplus-badvpn.service|sshplus-slowdns.service|sshplus-expirer.timer|sshplus-limiter.timer|openvpn-server@sshplus.service|sshplus-openvpn-nat.service) return 0 ;;
+        ssh.service|sshd.service|nginx.service|$PHP_FPM_SERVICE|fail2ban.service|sshplus-badvpn.service|sshplus-slowdns.service|sshplus-expirer.timer|sshplus-limiter.timer|openvpn-server@sshplus.service|sshplus-openvpn-nat.service) return 0 ;;
         *) return 1 ;;
     esac
 }
@@ -80,7 +82,7 @@ status_json() {
       --argjson disk_total "$disk_total" --argjson disk_available "$disk_avail" --argjson rx "$rx" --argjson tx "$tx" \
       --argjson uptime "$uptime" --argjson users "$users" --argjson sessions "$sessions" \
       --arg ssh "$(service_status_text "$(ssh_unit)")" --arg nginx "$(service_status_text nginx.service)" \
-      --arg php "$(service_status_text php8.5-fpm.service)" --arg fail2ban "$(service_status_text fail2ban.service)" \
+      --arg php "$(service_status_text "$PHP_FPM_SERVICE")" --arg fail2ban "$(service_status_text fail2ban.service)" \
       --arg openvpn "$(service_status_text openvpn-server@sshplus.service)" \
       --arg badvpn "$(service_status_text sshplus-badvpn.service)" --arg slowdns "$(service_status_text sshplus-slowdns.service)" \
       '{ok:true,data:{version:$version,hostname:$hostname,public_ip:$public_ip,load1:$load1,cpu_count:$cpu_count,
@@ -139,12 +141,14 @@ case "$action" in
     services.list)
         jq -n \
           --arg ssh "$(service_status_text "$(ssh_unit)")" --arg nginx "$(service_status_text nginx.service)" \
-          --arg php "$(service_status_text php8.5-fpm.service)" --arg fail2ban "$(service_status_text fail2ban.service)" \
+          --arg php "$(service_status_text "$PHP_FPM_SERVICE")" \
+          --arg php_unit "$PHP_FPM_SERVICE" --arg php_name "PHP ${PHP_VERSION} FPM" \
+          --arg fail2ban "$(service_status_text fail2ban.service)" \
           --arg badvpn "$(service_status_text sshplus-badvpn.service)" --arg slowdns "$(service_status_text sshplus-slowdns.service)" \
           --arg expirer "$(service_status_text sshplus-expirer.timer)" --arg limiter "$(service_status_text sshplus-limiter.timer)" \
           '{ok:true,data:[
             {unit:"ssh.service",name:"OpenSSH",status:$ssh},{unit:"nginx.service",name:"Nginx",status:$nginx},
-            {unit:"php8.5-fpm.service",name:"PHP 8.5 FPM",status:$php},{unit:"fail2ban.service",name:"Fail2ban",status:$fail2ban},
+            {unit:$php_unit,name:$php_name,status:$php},{unit:"fail2ban.service",name:"Fail2ban",status:$fail2ban},
             {unit:"sshplus-badvpn.service",name:"BadVPN UDPGW",status:$badvpn},{unit:"sshplus-slowdns.service",name:"SlowDNS / DNSTT",status:$slowdns},
             {unit:"sshplus-expirer.timer",name:"Expiração",status:$expirer},{unit:"sshplus-limiter.timer",name:"Limite de sessões",status:$limiter}]}'
         ;;

@@ -15,7 +15,7 @@ Também está disponível no menu principal em **Diagnóstico e homologação**.
 
 O diagnóstico confere:
 
-- Ubuntu 26.04 e arquitetura;
+- Ubuntu 24.04/26.04 e arquitetura;
 - versão e arquivos essenciais;
 - atalhos instalados em `/usr/local`;
 - sintaxe e estado do OpenSSH;

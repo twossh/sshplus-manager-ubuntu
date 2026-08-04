@@ -8,7 +8,10 @@ panel_url() {
 panel_status() {
     header 'Painel web e API REST' 'Acesso local seguro por padrão'
     printf '  Nginx:       %s\n' "$(service_status_text nginx.service)"
-    printf '  PHP 8.5:     %s\n' "$(service_status_text php8.5-fpm.service)"
+    local php_version php_service
+    php_version="$(sshplus_php_version 2>/dev/null || printf '?')"
+    php_service="$(sshplus_php_fpm_service 2>/dev/null || printf 'php-fpm.service')"
+    printf '  PHP %s:     %s\n' "$php_version" "$(service_status_text "$php_service")"
     printf '  Endereço:    %s\n' "$(panel_url)"
     printf '  Banco:       %s\n' "$SSHPLUS_DB"
     printf '  Credenciais: /root/sshplus-panel-credentials.txt\n\n'
@@ -66,7 +69,7 @@ panel_menu() {
             1) panel_status; pause ;;
             2) panel_reset_password; pause ;;
             3) panel_show_credentials; pause ;;
-            4) systemctl restart php8.5-fpm.service nginx.service && ok 'Painel reiniciado.'; pause ;;
+            4) systemctl restart "$(sshplus_php_fpm_service)" nginx.service && ok 'Painel reiniciado.'; pause ;;
             0) return ;;
             *) warn 'Opção inválida.'; sleep 1 ;;
         esac

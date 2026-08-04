@@ -67,7 +67,7 @@ restore_backup_file() {
     systemctl daemon-reload
     systemctl restart "$(ssh_unit)"
     systemctl restart sshplus-limiter.timer sshplus-expirer.timer 2>/dev/null || true
-    systemctl restart nginx.service php8.5-fpm.service 2>/dev/null || true
+    systemctl restart nginx.service "$(sshplus_php_fpm_service 2>/dev/null || printf 'php-fpm.service')" 2>/dev/null || true
     systemctl restart sshplus-badvpn.service sshplus-slowdns.service 2>/dev/null || true
     audit_log "$actor" "$source" backup.restore "$file" 1
 }

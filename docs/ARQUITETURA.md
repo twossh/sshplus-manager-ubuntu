@@ -5,7 +5,7 @@
 ```text
 Navegador
   └─ Nginx 127.0.0.1:8088
-      └─ PHP 8.5 FPM
+      └─ PHP-FPM 8.3/8.5
           ├─ autenticação em arquivo protegido
           └─ sudo restrito
               └─ sshplus-agent (root)

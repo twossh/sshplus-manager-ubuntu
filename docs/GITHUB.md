@@ -123,7 +123,7 @@ nova versão seguindo `docs/VERSIONAMENTO.md`.
 
 ## 7. Instalação e atualização pela Release
 
-Depois da primeira Release, uma VPS Ubuntu 26.04 poderá instalar o sistema com:
+Depois da primeira Release, uma VPS Ubuntu 24.04/26.04 poderá instalar o sistema com:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/twossh/sshplus-manager-ubuntu/main/install-online.sh | sudo bash

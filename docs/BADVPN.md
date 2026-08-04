@@ -1,4 +1,4 @@
-# BadVPN UDPGW no Ubuntu 26.04
+# BadVPN UDPGW no Ubuntu 24.04/26.04
 
 O módulo usa o release oficial `1.999.130`, commit `752c6b4`, e compila somente o componente `udpgw`.
 

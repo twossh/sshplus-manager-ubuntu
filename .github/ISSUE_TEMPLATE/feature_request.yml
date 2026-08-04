@@ -29,5 +29,5 @@ body:
       options:
         - label: A proposta preserva ou descreve a migração das configurações existentes.
           required: true
-        - label: A proposta considera Ubuntu 26.04 e systemd.
+        - label: A proposta considera Ubuntu 24.04/26.04 e systemd.
           required: true

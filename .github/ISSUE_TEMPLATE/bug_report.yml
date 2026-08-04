@@ -20,7 +20,7 @@ body:
     id: ubuntu
     attributes:
       label: Versão do Ubuntu
-      placeholder: Ubuntu 26.04 LTS
+      placeholder: Ubuntu 24.04/26.04 LTS
     validations:
       required: true
   - type: dropdown

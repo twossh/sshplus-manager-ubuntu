@@ -12,12 +12,23 @@ required=(VERSION TARGET REPOSITORY README.md CHANGELOG.md install.sh uninstall.
   bin/sshplus bin/sshplus-agent bin/sshplus-expirer bin/sshplus-limiter bin/sshplus-metrics bin/sshplus-healthcheck
   lib/common.sh lib/database.sh lib/user_service.sh modules/users.sh modules/panel.sh modules/update.sh modules/backup.sh
   database/schema.sql api/bootstrap.php api/AgentClient.php api/router.php web/public/index.php web/public/assets/app.css web/public/assets/app.js
-  nginx/sshplus-panel.conf.template sudoers/sshplus-api systemd/sshplus-metrics.service systemd/sshplus-metrics.timer)
+  nginx/sshplus-panel.conf.template sudoers/sshplus-api systemd/sshplus-metrics.service systemd/sshplus-metrics.timer docs/UBUNTU-LTS.md)
 for item in "${required[@]}"; do [[ -f "$BASE_DIR/$item" ]] && pass "Arquivo presente: $item" || fail "Arquivo ausente: $item"; done
 
 version="$(tr -d '\r\n' < "$BASE_DIR/VERSION")"
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && pass "Versão semântica: $version" || fail 'VERSION inválido.'
-[[ "$(tr -d '\r\n' < "$BASE_DIR/TARGET")" == ubuntu-26.04 ]] && pass 'Alvo Ubuntu 26.04.' || fail 'TARGET inválido.'
+[[ "$(tr -d '\r\n' < "$BASE_DIR/TARGET")" == ubuntu-lts ]] && pass 'Alvo Ubuntu LTS 24.04/26.04.' || fail 'TARGET inválido.'
+
+for platform in '24.04|8.3|php8.3-fpm.service|/run/php/php8.3-fpm.sock' '26.04|8.5|php8.5-fpm.service|/run/php/php8.5-fpm.sock'; do
+  IFS='|' read -r os expected_php expected_service expected_socket <<< "$platform"
+  result="$(SSHPLUS_UBUNTU_VERSION_ID="$os" SSHPLUS_HOME="$BASE_DIR" bash -c 'source "$SSHPLUS_HOME/lib/common.sh"; printf "%s|%s|%s" "$(sshplus_php_version)" "$(sshplus_php_fpm_service)" "$(sshplus_php_fpm_socket)"')"
+  [[ "$result" == "$expected_php|$expected_service|$expected_socket" ]] && pass "Plataforma Ubuntu $os mapeada para PHP $expected_php." || fail "Mapeamento de plataforma inválido para Ubuntu $os: $result"
+done
+if SSHPLUS_UBUNTU_VERSION_ID=22.04 SSHPLUS_HOME="$BASE_DIR" bash -c 'source "$SSHPLUS_HOME/lib/common.sh"; sshplus_supported_ubuntu' 2>/dev/null; then
+  fail 'Ubuntu 22.04 não deve ser aceito como alvo oficial.'
+else
+  pass 'Versões fora de 24.04/26.04 são rejeitadas.'
+fi
 
 mapfile -t scripts < <(find "$BASE_DIR" -type f \( -name '*.sh' -o -path "$BASE_DIR/bin/*" \) -not -path '*/dist/*' -print | sort)
 for file in "${scripts[@]}"; do bash -n "$file" || fail "Sintaxe Bash: ${file#$BASE_DIR/}"; done
@@ -59,6 +70,6 @@ if command -v systemd-analyze >/dev/null 2>&1; then
   (( rc == 0 )) && pass 'Unidades systemd validadas.' || { notice 'systemd-analyze retornou avisos dependentes do ambiente.'; [[ -n "$output" ]] && printf '%s\n' "$output" | sed 's/^/    /'; }
 else notice 'systemd-analyze indisponível.'; fi
 
-if [[ -r /etc/os-release ]]; then source /etc/os-release; [[ "${ID:-}" == ubuntu && "${VERSION_ID:-}" == 26.04 ]] && pass 'Ubuntu 26.04 detectado.' || notice "Ambiente atual: ${PRETTY_NAME:-desconhecido}; alvo oficial Ubuntu 26.04."; fi
+if [[ -r /etc/os-release ]]; then source /etc/os-release; [[ "${ID:-}" == ubuntu && ( "${VERSION_ID:-}" == 24.04 || "${VERSION_ID:-}" == 26.04 ) ]] && pass "Ubuntu ${VERSION_ID} suportado detectado." || notice "Ambiente atual: ${PRETTY_NAME:-desconhecido}; alvos oficiais Ubuntu 24.04/26.04."; fi
 printf '\nResultado: %s aviso(s), %s erro(s).\n' "$warnings" "$failed"
 (( failed == 0 ))

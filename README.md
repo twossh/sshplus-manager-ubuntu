@@ -1,7 +1,7 @@
-# SSHPlus Manager 5 — Ubuntu 26.04 LTS
+# SSHPlus Manager 5 — Ubuntu 24.04 e 26.04 LTS
 
 Plataforma modular para administrar contas SSH e serviços de túnel em Ubuntu
-Server 26.04 LTS. A versão 5 combina CLI, banco SQLite, agente privilegiado,
+Server 24.04 e 26.04 LTS. A versão 5 combina CLI, banco SQLite, agente privilegiado,
 API REST, painel web local, auditoria, métricas, backup, atualização e rollback.
 
 ## Visão geral
@@ -9,21 +9,20 @@ API REST, painel web local, auditoria, métricas, backup, atualização e rollba
 - **CLI Bash:** administração direta por `sudo menu`;
 - **SQLite:** usuários, auditoria, configurações, métricas e servidores;
 - **Agente root:** executa apenas ações previamente permitidas;
-- **API REST:** PHP 8.5 sem framework e sem Composer;
+- **API REST:** PHP 8.3/8.5 sem framework e sem Composer;
 - **Painel web:** Nginx + PHP-FPM, escutando apenas no loopback por padrão;
 - **Serviços:** OpenSSH, OpenVPN, BadVPN UDPGW e SlowDNS/DNSTT;
 - **Automação:** timers `systemd`, GitHub Actions, Releases e rollback.
 
 ## Requisitos
 
-- Ubuntu Server 26.04 LTS;
+- Ubuntu Server 24.04 LTS ou 26.04 LTS;
 - acesso root ou `sudo`;
 - `systemd`;
 - repositórios oficiais do Ubuntu habilitados;
 - acesso à internet para APT e componentes opcionais.
 
-O instalador usa os pacotes oficiais `php8.5-fpm`, `php8.5-cli`,
-`nginx` e `sqlite3` disponíveis no Ubuntu 26.04.
+O instalador seleciona `php8.3-fpm` e `php8.3-cli` no Ubuntu 24.04, ou `php8.5-fpm` e `php8.5-cli` no Ubuntu 26.04, além de `nginx` e `sqlite3`.
 
 ## Instalação online
 

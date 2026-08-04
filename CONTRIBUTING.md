@@ -43,7 +43,7 @@ fix: preservar chaves do SlowDNS durante atualização
 
 ## Requisitos técnicos
 
-- Bash compatível com Ubuntu 26.04;
+- Bash compatível com Ubuntu 24.04/26.04;
 - arquivos com final de linha LF;
 - scripts validados com `bash -n` e ShellCheck;
 - serviços validados com `systemd-analyze verify` quando disponível;
