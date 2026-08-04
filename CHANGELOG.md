@@ -4,6 +4,15 @@ Todas as alterações relevantes deste projeto são registradas neste arquivo.
 
 ## [Unreleased]
 
+## [5.2.1] - 2026-08-04
+
+### Corrigido
+
+- Corrige o teste Nginx do painel HTTPS no GitHub Actions para gravar o log de acesso dentro do diretório temporário do runner.
+- Elimina a falha `open() "/var/log/nginx/access.log" failed (13: Permission denied)` durante CI e Release.
+- Mantém inalterada a configuração de produção do painel público.
+
+
 ## [5.2.0] - 2026-08-04
 
 ### Adicionado

@@ -52,6 +52,7 @@ events { worker_connections 32; }
 http {
     include /etc/nginx/mime.types;
     default_type application/octet-stream;
+    access_log $TMP/log/nginx-access.log;
     limit_req_zone \$binary_remote_addr zone=sshplus_login:10m rate=5r/m;
     include $TMP/panel-public.conf;
 }
