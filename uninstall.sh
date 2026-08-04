@@ -26,7 +26,7 @@ rm -f /etc/fail2ban/jail.d/sshplus.local /etc/logrotate.d/sshplus /etc/tmpfiles.
 rm -f /etc/ssh/sshd_config.d/00-sshplus.conf
 rm -f /etc/nginx/sites-enabled/sshplus-panel /etc/nginx/sites-available/sshplus-panel
 rm -f /etc/sudoers.d/sshplus-api /etc/php/8.5/fpm/conf.d/99-sshplus.ini
-rm -f /usr/local/sbin/sshplus /usr/local/bin/menu /usr/local/sbin/sshplus-agent
+rm -f /usr/local/sbin/sshplus /usr/local/bin/menu /usr/local/sbin/sshplus-agent /usr/local/sbin/sshplus-healthcheck
 rm -f /usr/local/sbin/sshplus-badvpn /usr/local/sbin/badvpn /usr/local/sbin/sshplus-slowdns /usr/local/sbin/slowdns
 rm -f /usr/local/sbin/badvpn-udpgw /usr/local/bin/badvpn-udpgw /usr/local/sbin/dnstt-server /usr/local/bin/dnstt-client
 rm -rf /usr/local/share/licenses/sshplus-badvpn /usr/local/share/sshplus-slowdns /opt/sshplus

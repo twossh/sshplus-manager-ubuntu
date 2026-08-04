@@ -1,0 +1,233 @@
+#!/usr/bin/env bash
+set -uo pipefail
+umask 027
+
+SSHPLUS_HOME="${SSHPLUS_HOME:-/opt/sshplus}"
+SSHPLUS_CONFIG_DIR="${SSHPLUS_CONFIG_DIR:-/etc/sshplus}"
+SSHPLUS_STATE_DIR="${SSHPLUS_STATE_DIR:-/var/lib/sshplus}"
+SSHPLUS_LOG_DIR="${SSHPLUS_LOG_DIR:-/var/log/sshplus}"
+SSHPLUS_DB="${SSHPLUS_DB:-$SSHPLUS_STATE_DIR/sshplus.db}"
+
+passed=0
+warnings=0
+failed=0
+report_file=''
+
+if [[ ${EUID:-$(id -u)} -eq 0 && -d "$SSHPLUS_LOG_DIR" ]]; then
+    report_file="$SSHPLUS_LOG_DIR/healthcheck-$(date +%Y%m%d-%H%M%S).log"
+    touch "$report_file" 2>/dev/null || report_file=''
+    [[ -n "$report_file" ]] && chmod 0640 "$report_file" 2>/dev/null || true
+fi
+
+emit() {
+    printf '%s\n' "$*"
+    [[ -n "$report_file" ]] && printf '%s\n' "$*" >> "$report_file"
+}
+pass() { ((passed++)); emit "[OK] $*"; }
+warn() { ((warnings++)); emit "[AVISO] $*"; }
+fail() { ((failed++)); emit "[ERRO] $*"; }
+
+command_exists() { command -v "$1" >/dev/null 2>&1; }
+unit_exists() {
+    systemctl list-unit-files "$1" --no-legend 2>/dev/null | grep -q "^$1"
+}
+check_unit_active() {
+    local unit="$1" label="${2:-$1}"
+    if ! unit_exists "$unit"; then
+        warn "$label: unidade não instalada."
+        return
+    fi
+    if systemctl is-active --quiet "$unit"; then
+        pass "$label ativo."
+    else
+        fail "$label inativo: $(systemctl is-active "$unit" 2>/dev/null || printf desconhecido)."
+    fi
+}
+check_timer() {
+    local timer="$1" label="${2:-$1}"
+    if ! unit_exists "$timer"; then
+        fail "$label: timer não instalado."
+        return
+    fi
+    systemctl is-enabled --quiet "$timer" && pass "$label habilitado." || fail "$label não habilitado."
+    systemctl is-active --quiet "$timer" && pass "$label ativo." || fail "$label inativo."
+}
+mode_of() { stat -c '%a' "$1" 2>/dev/null || printf '?'; }
+owner_of() { stat -c '%U:%G' "$1" 2>/dev/null || printf '?'; }
+
+emit "SSHPlus Manager — diagnóstico pós-instalação"
+emit "Data: $(date --iso-8601=seconds 2>/dev/null || date)"
+emit "Servidor: $(hostname 2>/dev/null || printf desconhecido)"
+emit ""
+
+if [[ ${EUID:-$(id -u)} -eq 0 ]]; then
+    pass 'Execução como root.'
+else
+    warn 'Execute com sudo para validar arquivos e serviços protegidos.'
+fi
+
+if [[ -r /etc/os-release ]]; then
+    # shellcheck disable=SC1091
+    source /etc/os-release
+    if [[ "${ID:-}" == ubuntu && "${VERSION_ID:-}" == 26.04 ]]; then
+        pass "Sistema compatível: ${PRETTY_NAME:-Ubuntu 26.04}."
+    else
+        fail "Sistema fora do alvo: ${PRETTY_NAME:-desconhecido}; esperado Ubuntu 26.04."
+    fi
+else
+    fail 'Não foi possível identificar o sistema operacional.'
+fi
+
+case "$(uname -m)" in
+    x86_64|aarch64|arm64) pass "Arquitetura suportada: $(uname -m)." ;;
+    *) warn "Arquitetura não homologada: $(uname -m)." ;;
+esac
+
+if [[ -r "$SSHPLUS_HOME/VERSION" ]]; then
+    version="$(tr -d '\r\n' < "$SSHPLUS_HOME/VERSION")"
+    [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && pass "Versão instalada: $version." || fail "VERSION inválido: $version."
+else
+    fail "$SSHPLUS_HOME/VERSION ausente."
+fi
+
+required_files=(
+    "$SSHPLUS_HOME/bin/sshplus"
+    "$SSHPLUS_HOME/bin/sshplus-agent"
+    "$SSHPLUS_HOME/bin/sshplus-expirer"
+    "$SSHPLUS_HOME/bin/sshplus-limiter"
+    "$SSHPLUS_HOME/bin/sshplus-metrics"
+    "$SSHPLUS_HOME/lib/common.sh"
+    "$SSHPLUS_HOME/lib/database.sh"
+    "$SSHPLUS_HOME/database/schema.sql"
+    "$SSHPLUS_CONFIG_DIR/sshplus.conf"
+)
+for file in "${required_files[@]}"; do
+    [[ -f "$file" ]] && pass "Arquivo presente: $file" || fail "Arquivo ausente: $file"
+done
+
+for link in /usr/local/sbin/sshplus /usr/local/bin/menu /usr/local/sbin/sshplus-agent /usr/local/sbin/sshplus-healthcheck; do
+    if [[ -L "$link" && -e "$link" ]]; then
+        pass "Atalho válido: $link"
+    else
+        fail "Atalho ausente ou quebrado: $link"
+    fi
+done
+
+if command_exists sshd; then
+    sshd -t >/dev/null 2>&1 && pass 'Configuração OpenSSH válida.' || fail 'sshd -t encontrou erro na configuração.'
+else
+    fail 'Comando sshd não encontrado.'
+fi
+
+ssh_unit='ssh.service'
+unit_exists ssh.service || ssh_unit='sshd.service'
+check_unit_active "$ssh_unit" 'OpenSSH'
+check_timer sshplus-expirer.timer 'Expiração automática'
+check_timer sshplus-limiter.timer 'Limitador de sessões'
+check_timer sshplus-metrics.timer 'Coleta de métricas'
+
+if [[ -f "$SSHPLUS_DB" ]]; then
+    db_mode="$(mode_of "$SSHPLUS_DB")"
+    db_owner="$(owner_of "$SSHPLUS_DB")"
+    [[ "$db_owner" == root:root ]] && pass "Banco com proprietário root:root." || fail "Banco com proprietário inesperado: $db_owner."
+    [[ "$db_mode" == 600 ]] && pass 'Banco com permissão 0600.' || fail "Banco com permissão $db_mode; esperado 600."
+    if command_exists sqlite3; then
+        integrity="$(sqlite3 "$SSHPLUS_DB" 'PRAGMA quick_check;' 2>/dev/null || true)"
+        [[ "$integrity" == ok ]] && pass 'Integridade SQLite aprovada.' || fail "Integridade SQLite falhou: ${integrity:-sem resposta}."
+        tables="$(sqlite3 "$SSHPLUS_DB" "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('users','audit_logs','api_users','servers','metrics','backups');" 2>/dev/null || true)"
+        [[ "$tables" == 6 ]] && pass 'Estrutura SQLite completa.' || fail "Estrutura SQLite incompleta: ${tables:-0}/6 tabelas essenciais."
+    else
+        warn 'sqlite3 não encontrado; integridade do banco não testada.'
+    fi
+else
+    fail "Banco não encontrado: $SSHPLUS_DB"
+fi
+
+panel_enabled='yes'
+panel_listen='127.0.0.1:8088'
+if [[ -r "$SSHPLUS_CONFIG_DIR/sshplus.conf" ]]; then
+    value="$(sed -nE 's/^[[:space:]]*SSHPLUS_PANEL_ENABLED="?([^"#[:space:]]+)"?.*$/\1/p' "$SSHPLUS_CONFIG_DIR/sshplus.conf" | tail -n1)"
+    [[ -n "$value" ]] && panel_enabled="$value"
+    value="$(sed -nE 's/^[[:space:]]*SSHPLUS_PANEL_LISTEN="?([^"#[:space:]]+)"?.*$/\1/p' "$SSHPLUS_CONFIG_DIR/sshplus.conf" | tail -n1)"
+    [[ -n "$value" ]] && panel_listen="$value"
+fi
+
+if [[ "$panel_enabled" == yes ]]; then
+    case "$panel_listen" in
+        127.0.0.1:*|localhost:*|'[::1]':*) pass "Painel restrito ao loopback: $panel_listen." ;;
+        *) fail "Painel configurado em endereço não local: $panel_listen." ;;
+    esac
+    check_unit_active nginx.service 'Nginx'
+    check_unit_active php8.5-fpm.service 'PHP 8.5 FPM'
+    command_exists nginx && nginx -t >/dev/null 2>&1 && pass 'Configuração Nginx válida.' || fail 'Configuração Nginx inválida ou comando ausente.'
+    if command_exists php-fpm8.5; then
+        php-fpm8.5 -t >/dev/null 2>&1 && pass 'Configuração PHP-FPM válida.' || fail 'Configuração PHP-FPM inválida.'
+    else
+        warn 'php-fpm8.5 não encontrado para teste de configuração.'
+    fi
+    auth_file="$SSHPLUS_CONFIG_DIR/panel-auth.json"
+    if [[ -f "$auth_file" ]]; then
+        auth_owner="$(owner_of "$auth_file")"; auth_mode="$(mode_of "$auth_file")"
+        [[ "$auth_owner" == root:sshplus-api ]] && pass 'Autenticação do painel com proprietário correto.' || fail "Proprietário de panel-auth.json: $auth_owner."
+        [[ "$auth_mode" == 640 ]] && pass 'Autenticação do painel com permissão 0640.' || fail "Permissão de panel-auth.json: $auth_mode."
+        if command_exists php; then
+            php -r '$d=json_decode(file_get_contents($argv[1]),true); exit(is_array($d)&&isset($d["accounts"]) ? 0 : 1);' "$auth_file" \
+                && pass 'JSON de autenticação válido.' || fail 'JSON de autenticação inválido.'
+        fi
+    else
+        fail 'Arquivo de autenticação do painel ausente.'
+    fi
+
+    panel_port="${panel_listen##*:}"
+    if [[ "$panel_port" =~ ^[0-9]+$ ]] && command_exists curl; then
+        api="$(curl -fsS --max-time 5 "http://127.0.0.1:${panel_port}/api/health" 2>/dev/null || true)"
+        if [[ "$api" == *'"ok":true'* ]]; then
+            pass 'API local respondeu com sucesso.'
+        else
+            fail 'API local não respondeu corretamente.'
+        fi
+    else
+        warn 'Não foi possível determinar/testar a porta local do painel.'
+    fi
+else
+    warn 'Painel web desativado por configuração.'
+fi
+
+if unit_exists sshplus-badvpn.service; then
+    if [[ -x /usr/local/sbin/badvpn-udpgw ]]; then
+        check_unit_active sshplus-badvpn.service 'BadVPN UDPGW'
+        if command_exists ss && ss -lntup 2>/dev/null | grep -Eq '127\.0\.0\.1:7300|\[::1\]:7300'; then
+            pass 'BadVPN escutando localmente na porta padrão.'
+        else
+            warn 'BadVPN instalado, mas a porta local 7300 não foi identificada.'
+        fi
+    else
+        warn 'BadVPN ainda não instalado; módulo disponível no menu.'
+    fi
+fi
+
+if unit_exists sshplus-slowdns.service; then
+    if [[ -x /usr/local/sbin/dnstt-server ]]; then
+        check_unit_active sshplus-slowdns.service 'SlowDNS / DNSTT'
+        for key in /etc/slowdns/server.key /etc/slowdns/server.pub; do
+            [[ -f "$key" ]] && pass "Chave presente: $key" || fail "Chave ausente: $key"
+        done
+        if [[ -f /etc/slowdns/server.key ]]; then
+            key_mode="$(mode_of /etc/slowdns/server.key)"
+            [[ "$key_mode" == 600 || "$key_mode" == 640 ]] && pass 'Chave privada SlowDNS protegida.' || fail "Permissão insegura em server.key: $key_mode."
+        fi
+    else
+        warn 'SlowDNS ainda não instalado; módulo disponível no menu.'
+    fi
+fi
+
+if command_exists systemctl; then
+    failed_units="$(systemctl --failed --no-legend 2>/dev/null | awk 'NF{print $1}' | paste -sd, -)"
+    [[ -z "$failed_units" ]] && pass 'Nenhuma unidade systemd em estado failed.' || warn "Unidades systemd com falha: $failed_units"
+fi
+
+emit ''
+emit "Resultado: $passed aprovado(s), $warnings aviso(s), $failed erro(s)."
+[[ -n "$report_file" ]] && emit "Relatório: $report_file"
+
+(( failed == 0 ))

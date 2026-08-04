@@ -28,3 +28,12 @@ sudo sshplus --status
 sudo sshplus --logs
 sudo sshplus --version
 ```
+
+## Diagnóstico pós-instalação
+
+```bash
+sudo sshplus --healthcheck
+```
+
+Executa verificações somente leitura e retorna código diferente de zero quando
+encontra erro crítico. Consulte `docs/HOMOLOGACAO.md`.

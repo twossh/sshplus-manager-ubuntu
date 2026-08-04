@@ -4,6 +4,15 @@ Todas as alterações relevantes deste projeto são registradas neste arquivo.
 
 ## [Unreleased]
 
+## [5.0.2] - 2026-08-04
+
+### Adicionado
+
+- Diagnóstico pós-instalação com `sudo sshplus --healthcheck`.
+- Verificação de serviços, timers, SQLite, painel local, API, permissões, BadVPN e SlowDNS.
+- Relatório seguro em `/var/log/sshplus`, sem exibir credenciais ou chaves.
+- Guia de homologação para a primeira implantação em Ubuntu 26.04.
+
 ## [5.0.1] - 2026-08-04
 
 ### Alterado

@@ -1,0 +1,14 @@
+ATUALIZAÇÃO 5.0.2 PELO GITHUB DESKTOP
+
+1. Abra no Explorer a pasta local clonada do repositório:
+   sshplus-manager-ubuntu
+
+2. Copie todo o conteúdo desta pasta de patch para a raiz do repositório,
+   confirmando a substituição dos arquivos existentes.
+
+3. No GitHub Desktop, use o resumo:
+   release: SSHPlus Manager v5.0.2
+
+4. Clique em Commit to main e depois Push origin.
+
+O workflow Release lerá VERSION=5.0.2 e publicará a nova Release.

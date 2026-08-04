@@ -196,6 +196,7 @@ ln -sfn "$TARGET/bin/sshplus" /usr/local/sbin/sshplus; ln -sfn "$TARGET/bin/sshp
 ln -sfn "$TARGET/bin/sshplus-badvpn" /usr/local/sbin/sshplus-badvpn; ln -sfn "$TARGET/bin/sshplus-badvpn" /usr/local/sbin/badvpn
 ln -sfn "$TARGET/bin/sshplus-slowdns" /usr/local/sbin/sshplus-slowdns; ln -sfn "$TARGET/bin/sshplus-slowdns" /usr/local/sbin/slowdns
 ln -sfn "$TARGET/bin/sshplus-agent" /usr/local/sbin/sshplus-agent
+ln -sfn "$TARGET/bin/sshplus-healthcheck" /usr/local/sbin/sshplus-healthcheck
 
 if (( PANEL_ENABLED == 1 )); then
     install -m 0440 "$BASE_DIR/sudoers/sshplus-api" /etc/sudoers.d/sshplus-api

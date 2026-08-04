@@ -83,6 +83,7 @@ Comandos úteis:
 ```bash
 sudo sshplus --panel-status
 sudo sshplus --panel-reset-password
+sudo sshplus --healthcheck
 ```
 
 ## Estrutura instalada
@@ -168,6 +169,7 @@ Documentação:
 
 - [Arquitetura](docs/ARQUITETURA.md)
 - [Painel e acesso](docs/PAINEL.md)
+- [Homologação pós-instalação](docs/HOMOLOGACAO.md)
 - [API REST](docs/API.md)
 - [Migração para v5](docs/MIGRACAO-V5.md)
 - [Estratégia multi-servidores](docs/MULTISSERVIDOR.md)

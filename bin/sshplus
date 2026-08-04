@@ -78,8 +78,9 @@ main_menu() {
         printf '  7) Segurança e otimização\n'
         printf '  8) Backup e restauração\n'
         printf '  9) Atualizações do sistema\n'
-        printf ' 10) Exibir logs\n'
-        printf ' 11) Sobre\n'
+        printf ' 10) Diagnóstico e homologação\n'
+        printf ' 11) Exibir logs\n'
+        printf ' 12) Sobre\n'
         printf '  0) Sair\n\n'
         read -r -p 'Opção: ' option || exit 0
         case "$option" in
@@ -92,8 +93,9 @@ main_menu() {
             7) security_menu ;;
             8) backup_menu ;;
             9) update_menu ;;
-            10) show_logs; pause ;;
-            11) show_about; pause ;;
+            10) "$SSHPLUS_HOME/bin/sshplus-healthcheck"; pause ;;
+            11) show_logs; pause ;;
+            12) show_about; pause ;;
             0) clear 2>/dev/null || true; exit 0 ;;
             *) warn 'Opção inválida.'; sleep 1 ;;
         esac
@@ -109,6 +111,7 @@ case "${1:-}" in
     --configure-repository) configure_repository; exit $? ;;
     --panel-status) panel_status; exit 0 ;;
     --panel-reset-password) panel_reset_password; exit $? ;;
+    --healthcheck) "$SSHPLUS_HOME/bin/sshplus-healthcheck"; exit $? ;;
     --help|-h)
         cat <<'HELP'
 Uso: sudo sshplus [opção]
@@ -122,6 +125,7 @@ Sem opções: abre o menu CLI.
   --configure-repository configura proprietário/repositório
   --panel-status exibe acesso e status do painel
   --panel-reset-password redefine a credencial administrativa
+  --healthcheck  executa diagnóstico pós-instalação
   --help         exibe esta ajuda
 HELP
         exit 0
