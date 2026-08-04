@@ -4,6 +4,15 @@ Todas as alterações relevantes deste projeto são registradas neste arquivo.
 
 ## [Unreleased]
 
+## [5.1.5] - 2026-08-04
+
+### Corrigido
+
+- Move a elevação de privilégio do teste de reparo para o orquestrador de CI.
+- Executa somente o teste isolado com `sudo -n`, mantendo as demais validações como usuário do runner.
+- Recalcula os checksums após alterações de documentação e elimina falhas causadas por `SHA256SUMS` desatualizado.
+- Mantém o reparador de produção restrito ao root.
+
 ## [5.1.4] - 2026-08-04
 
 ### Corrigido

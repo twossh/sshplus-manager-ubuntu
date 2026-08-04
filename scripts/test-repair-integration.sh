@@ -1,15 +1,12 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# O reparador deve permanecer restrito ao root. No CI, o teste se relança com
-# sudo não interativo, exatamente como ocorreria em uma instalação real.
-if (( EUID != 0 )); then
-    command -v sudo >/dev/null 2>&1 || {
-        printf 'Teste do reparador requer sudo.\n' >&2
-        exit 1
-    }
-    exec sudo --non-interactive bash "$0" "$@"
-fi
+# Este teste manipula proprietários e permissões em uma árvore temporária.
+# A elevação é responsabilidade de scripts/ci.sh.
+(( EUID == 0 )) || {
+    printf 'Teste integrado do reparador deve ser executado como root.\n' >&2
+    exit 1
+}
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP="$(mktemp -d /tmp/sshplus-repair-test.XXXXXX)"

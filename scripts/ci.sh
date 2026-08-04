@@ -19,7 +19,25 @@ fi
 
 bash ./scripts/checksums.sh check
 bash ./verify.sh
-bash ./scripts/test-repair-integration.sh
+
+run_repair_integration() {
+    if (( EUID == 0 )); then
+        bash "$ROOT/scripts/test-repair-integration.sh"
+        return
+    fi
+
+    command -v sudo >/dev/null 2>&1 || {
+        printf 'sudo é obrigatório para o teste integrado do reparador.\n' >&2
+        exit 1
+    }
+    sudo -n true 2>/dev/null || {
+        printf 'O teste integrado requer sudo não interativo.\n' >&2
+        exit 1
+    }
+    sudo -n bash "$ROOT/scripts/test-repair-integration.sh"
+}
+
+run_repair_integration
 bash ./scripts/build-release.sh
 
 # Valida os checksums da Release e o nome usado pelo instalador online.
