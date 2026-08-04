@@ -1,3 +1,9 @@
 Cmnd_Alias SSHPLUS_AGENT = /opt/sshplus/bin/sshplus-agent *
+
+# O usuário direto evita dependência de uma sessão antiga do PHP-FPM sem os grupos atualizados.
+www-data ALL=(root) NOPASSWD: SSHPLUS_AGENT
 %sshplus-api ALL=(root) NOPASSWD: SSHPLUS_AGENT
+
+Defaults:www-data !requiretty
+Defaults:%sshplus-api !requiretty
 Defaults!SSHPLUS_AGENT !setenv, secure_path=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin

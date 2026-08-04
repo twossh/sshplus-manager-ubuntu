@@ -22,12 +22,13 @@ panel_status() {
 
 panel_reset_password() {
     require_root
-    local username password hash auth_file auth_tmp listen port
+    local username password hash auth_file auth_tmp listen port php_cli
     username="$(prompt_value 'Usuário do painel' 'admin')" || return
     valid_username "$username" || { error 'Usuário inválido.'; return; }
     password="$(prompt_secret_confirmed 'Nova senha')" || return
     valid_password "$password" || { error 'Use no mínimo 8 caracteres.'; return; }
-    hash="$(php -r 'echo password_hash($argv[1], PASSWORD_DEFAULT);' "$password")"
+    php_cli="$(sshplus_php_cli_binary)"
+    hash="$("$php_cli" -r 'echo password_hash($argv[1], PASSWORD_DEFAULT);' "$password")"
     auth_file="$SSHPLUS_CONFIG_DIR/panel-auth.json"
     auth_tmp="$(mktemp "$SSHPLUS_CONFIG_DIR/.panel-auth.XXXXXX")"
     jq -n --arg username "$username" --arg password_hash "$hash" \
@@ -63,6 +64,7 @@ panel_menu() {
         printf '  2) Redefinir usuário/senha administrativa\n'
         printf '  3) Exibir credencial inicial\n'
         printf '  4) Reiniciar Nginx e PHP-FPM\n'
+        printf '  5) Reparar e validar o painel\n'
         printf '  0) Voltar\n\n'
         read -r -p 'Opção: ' option || return
         case "$option" in
@@ -70,6 +72,7 @@ panel_menu() {
             2) panel_reset_password; pause ;;
             3) panel_show_credentials; pause ;;
             4) systemctl restart "$(sshplus_php_fpm_service)" nginx.service && ok 'Painel reiniciado.'; pause ;;
+            5) "$SSHPLUS_HOME/bin/sshplus-panel-repair"; pause ;;
             0) return ;;
             *) warn 'Opção inválida.'; sleep 1 ;;
         esac

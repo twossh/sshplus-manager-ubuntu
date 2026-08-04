@@ -45,3 +45,15 @@ protegido como `root:root` em modo `0600`; consultas e alterações são realiza
 exclusivamente pelo agente administrativo. A autenticação web utiliza o arquivo
 `/etc/sshplus/panel-auth.json`, legível somente por `root` e pelo grupo
 `sshplus-api`.
+
+## Diagnóstico e reparo
+
+```bash
+sudo sshplus --panel-repair
+sudo sshplus --healthcheck
+curl -fsS http://127.0.0.1:8088/api/health | jq
+```
+
+O login não depende da auditoria para ser concluído. Falhas do agente são
+registradas em `/var/log/sshplus/php-error.log` com um código de referência, sem
+expor senhas ou chaves no navegador.

@@ -40,3 +40,7 @@ release_checksum="$(awk -v file="$release_asset" '
     printf 'Checksum do instalador online não encontrado para %s.\n' "$release_asset" >&2
     exit 1
 }
+
+if [[ "${SSHPLUS_RUN_PANEL_INTEGRATION:-0}" == 1 ]]; then
+    bash ./scripts/test-panel-integration.sh
+fi

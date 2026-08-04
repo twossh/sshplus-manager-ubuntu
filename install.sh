@@ -64,7 +64,7 @@ install -d -m 0700 "$backup_dir" "$RELEASE_BACKUP_ROOT"
 backup_path() { local path="$1"; [[ -e "$path" || -L "$path" ]] && cp -a --parents "$path" "$backup_dir/" || true; }
 for path in /etc/ssh/sshd_config.d/00-sshplus.conf /etc/ssh/sshd_config.d/90-sshplus.conf "$CONF_DIR" "$STATE_DIR" \
   /etc/fail2ban/jail.d/sshplus.local /etc/logrotate.d/sshplus /etc/tmpfiles.d/sshplus.conf \
-  /etc/nginx/sites-available/sshplus-panel /etc/nginx/sites-enabled/sshplus-panel /etc/sudoers.d/sshplus-api; do backup_path "$path"; done
+  /etc/nginx/sites-available/sshplus-panel /etc/nginx/sites-enabled/sshplus-panel /etc/nginx/conf.d/sshplus-panel.conf /etc/sudoers.d/sshplus-api; do backup_path "$path"; done
 
 if [[ -d "$TARGET" && -r "$TARGET/VERSION" ]]; then
     old_version="$(tr -d '\r\n' < "$TARGET/VERSION")"
@@ -94,6 +94,7 @@ fi
 install -d -m 0750 -o root -g sshplus-api "$CONF_DIR"
 install -d -m 0750 -o root -g root "$STATE_DIR"
 install -d -m 0750 -o root -g adm "$LOG_DIR"
+if (( PANEL_ENABLED == 1 )); then install -d -m 1733 -o root -g root /var/lib/php/sessions; fi
 
 DETECTED_SSH_PORT="$(/usr/sbin/sshd -T 2>/dev/null | awk '$1=="port"{print $2; exit}')"; DETECTED_SSH_PORT="${DETECTED_SSH_PORT:-22}"
 if [[ ! -f "$CONF_DIR/sshplus.conf" ]]; then
@@ -115,8 +116,10 @@ if [[ "$BUNDLED_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ && "$BUNDLED_RE
     grep -q '^SSHPLUS_GITHUB_REPOSITORY="[^" ]\+"' "$CONF_DIR/sshplus.conf" 2>/dev/null || set_config_value "$CONF_DIR/sshplus.conf" SSHPLUS_GITHUB_REPOSITORY "$BUNDLED_REPOSITORY"
 fi
 
-touch "$LOG_DIR/sshplus.log" "$LOG_DIR/operations.log" "$LOG_DIR/panel-access.log" "$LOG_DIR/panel-error.log"
-chown root:adm "$LOG_DIR"/*.log; chmod 0640 "$LOG_DIR"/*.log
+touch "$LOG_DIR/sshplus.log" "$LOG_DIR/operations.log" "$LOG_DIR/panel-access.log" "$LOG_DIR/panel-error.log" "$LOG_DIR/php-error.log"
+chown root:adm "$LOG_DIR/sshplus.log" "$LOG_DIR/operations.log" "$LOG_DIR/panel-access.log" "$LOG_DIR/panel-error.log"
+chmod 0640 "$LOG_DIR/sshplus.log" "$LOG_DIR/operations.log" "$LOG_DIR/panel-access.log" "$LOG_DIR/panel-error.log"
+chown root:sshplus-api "$LOG_DIR/php-error.log"; chmod 0660 "$LOG_DIR/php-error.log"
 
 cat > /etc/tmpfiles.d/sshplus.conf <<'CONF'
 d /etc/sshplus 0750 root sshplus-api -
@@ -126,6 +129,7 @@ f /var/log/sshplus/sshplus.log 0640 root adm -
 f /var/log/sshplus/operations.log 0640 root adm -
 f /var/log/sshplus/panel-access.log 0640 root adm -
 f /var/log/sshplus/panel-error.log 0640 root adm -
+f /var/log/sshplus/php-error.log 0660 root sshplus-api -
 CONF
 systemd-tmpfiles --create /etc/tmpfiles.d/sshplus.conf
 cat > /etc/logrotate.d/sshplus <<'CONF'
@@ -199,10 +203,12 @@ ln -sfn "$TARGET/bin/sshplus-badvpn" /usr/local/sbin/sshplus-badvpn; ln -sfn "$T
 ln -sfn "$TARGET/bin/sshplus-slowdns" /usr/local/sbin/sshplus-slowdns; ln -sfn "$TARGET/bin/sshplus-slowdns" /usr/local/sbin/slowdns
 ln -sfn "$TARGET/bin/sshplus-agent" /usr/local/sbin/sshplus-agent
 ln -sfn "$TARGET/bin/sshplus-healthcheck" /usr/local/sbin/sshplus-healthcheck
+ln -sfn "$TARGET/bin/sshplus-panel-repair" /usr/local/sbin/sshplus-panel-repair
 
 if (( PANEL_ENABLED == 1 )); then
     install -m 0440 "$BASE_DIR/sudoers/sshplus-api" /etc/sudoers.d/sshplus-api
     visudo -cf /etc/sudoers.d/sshplus-api >/dev/null || die 'Configuração sudoers inválida.'
+    rm -f /etc/nginx/conf.d/sshplus-panel.conf
     sed -e "s|@PANEL_LISTEN@|$PANEL_LISTEN|g" -e "s|@PHP_FPM_SOCKET@|$PHP_FPM_SOCKET|g" \
         "$BASE_DIR/nginx/sshplus-panel.conf.template" > /etc/nginx/sites-available/sshplus-panel
     ln -sfn /etc/nginx/sites-available/sshplus-panel /etc/nginx/sites-enabled/sshplus-panel
@@ -210,6 +216,8 @@ if (( PANEL_ENABLED == 1 )); then
     install -d -m 0755 "/etc/php/${PHP_VERSION}/fpm/conf.d"
     cat > "/etc/php/${PHP_VERSION}/fpm/conf.d/99-sshplus.ini" <<'PHPINI'
 expose_php=Off
+log_errors=On
+error_log=/var/log/sshplus/php-error.log
 session.cookie_httponly=1
 session.cookie_samesite=Strict
 session.use_strict_mode=1
@@ -246,6 +254,10 @@ bantime = 1h
 CONF
 systemctl enable --now fail2ban.service; systemctl restart fail2ban.service
 command -v ufw >/dev/null 2>&1 && ufw allow "${DETECTED_SSH_PORT}/tcp" comment 'SSHPlus OpenSSH' >/dev/null || true
+if (( PANEL_ENABLED == 1 )); then
+    info 'Validando e reparando a integração do painel...'
+    "$TARGET/bin/sshplus-panel-repair"
+fi
 rm -rf "$TARGET.old"
 
 printf '\n'; ok "SSHPlus Manager $(sshplus_version) instalado."

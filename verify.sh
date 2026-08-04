@@ -9,10 +9,10 @@ notice(){ printf '[AVISO] %s\n' "$*"; ((warnings++)); }
 
 printf 'SSHPlus Manager %s — verificação\n\n' "$(tr -d '\r\n' < "$BASE_DIR/VERSION")"
 required=(VERSION TARGET REPOSITORY README.md CHANGELOG.md install.sh uninstall.sh install-online.sh
-  bin/sshplus bin/sshplus-agent bin/sshplus-expirer bin/sshplus-limiter bin/sshplus-metrics bin/sshplus-healthcheck
+  bin/sshplus bin/sshplus-agent bin/sshplus-expirer bin/sshplus-limiter bin/sshplus-metrics bin/sshplus-healthcheck bin/sshplus-panel-repair
   lib/common.sh lib/database.sh lib/user_service.sh modules/users.sh modules/panel.sh modules/update.sh modules/backup.sh
   database/schema.sql api/bootstrap.php api/AgentClient.php api/router.php web/public/index.php web/public/assets/app.css web/public/assets/app.js
-  nginx/sshplus-panel.conf.template sudoers/sshplus-api systemd/sshplus-metrics.service systemd/sshplus-metrics.timer docs/UBUNTU-LTS.md)
+  nginx/sshplus-panel.conf.template sudoers/sshplus-api systemd/sshplus-metrics.service systemd/sshplus-metrics.timer docs/UBUNTU-LTS.md scripts/test-panel-integration.sh)
 for item in "${required[@]}"; do [[ -f "$BASE_DIR/$item" ]] && pass "Arquivo presente: $item" || fail "Arquivo ausente: $item"; done
 
 version="$(tr -d '\r\n' < "$BASE_DIR/VERSION")"
@@ -46,6 +46,8 @@ if grep -RIEq '\bdialog\b|programbox|msgbox|passwordbox|inputbox' "$BASE_DIR/bin
 if grep -RIEq 'apt-key|/etc/rc\.local|\bscreen\b|python2|python-pip|squid3' "$BASE_DIR/bin" "$BASE_DIR/lib" "$BASE_DIR/modules" "$BASE_DIR/install.sh" "$BASE_DIR/systemd" 2>/dev/null; then fail 'Técnica legada proibida encontrada.'; else pass 'Nenhuma técnica legada proibida.'; fi
 if grep -RIEq 'BEGIN (RSA |OPENSSH )?PRIVATE KEY' "$BASE_DIR" --exclude-dir=.git --exclude=verify.sh 2>/dev/null; then fail 'Possível chave privada incluída.'; else pass 'Nenhuma chave privada incluída.'; fi
 if grep -RIEq 'new[[:space:]]+(PDO|SQLite3)|sqlite:file:' "$BASE_DIR/api" 2>/dev/null; then fail 'A API PHP não deve abrir o banco administrativo diretamente.'; else pass 'Banco administrativo isolado da API PHP.'; fi
+if grep -nA30 "path === '/api/login'" "$BASE_DIR/api/router.php" | grep -q "AgentClient::call('audit.write'"; then fail 'Auditoria bloqueante encontrada no login.'; else pass 'Auditoria do login é não bloqueante.'; fi
+if grep -q '^www-data ALL=(root) NOPASSWD: SSHPLUS_AGENT$' "$BASE_DIR/sudoers/sshplus-api"; then pass 'Sudoers permite somente o agente ao usuário PHP.'; else fail 'Regra direta do usuário www-data ausente.'; fi
 if find "$BASE_DIR" -type f -perm -0002 -print -quit | grep -q .; then fail 'Arquivo world-writable encontrado.'; else pass 'Permissões do pacote sem world-writable.'; fi
 
 if command -v sqlite3 >/dev/null 2>&1; then

@@ -111,6 +111,7 @@ case "${1:-}" in
     --configure-repository) configure_repository; exit $? ;;
     --panel-status) panel_status; exit 0 ;;
     --panel-reset-password) panel_reset_password; exit $? ;;
+    --panel-repair) "$SSHPLUS_HOME/bin/sshplus-panel-repair"; exit $? ;;
     --healthcheck) "$SSHPLUS_HOME/bin/sshplus-healthcheck"; exit $? ;;
     --help|-h)
         cat <<'HELP'
@@ -125,6 +126,7 @@ Sem opções: abre o menu CLI.
   --configure-repository configura proprietário/repositório
   --panel-status exibe acesso e status do painel
   --panel-reset-password redefine a credencial administrativa
+  --panel-repair repara Nginx, PHP-FPM, autenticação e agente
   --healthcheck  executa diagnóstico pós-instalação
   --help         exibe esta ajuda
 HELP

@@ -4,6 +4,22 @@ Todas as alterações relevantes deste projeto são registradas neste arquivo.
 
 ## [Unreleased]
 
+## [5.1.2] - 2026-08-04
+
+### Corrigido
+
+- O login não retorna mais erro HTTP 500 quando a gravação de auditoria está temporariamente indisponível.
+- Comunicação PHP → sudo → agente root com resposta JSON previsível e diagnóstico seguro.
+- Permissão direta e por grupo para o usuário `www-data` executar somente o agente autorizado.
+- Remoção automática de configurações Nginx duplicadas em `conf.d`.
+- Permissões do arquivo de autenticação, sessão PHP e logs do PHP-FPM.
+
+### Adicionado
+
+- Comando `sudo sshplus --panel-repair` para reparar e validar Nginx, PHP-FPM, autenticação e agente.
+- Verificações internas em `/api/health` e no diagnóstico pós-instalação.
+- Teste obrigatório da ponte privilegiada e da API antes de concluir a instalação.
+
 ## [5.1.1] - 2026-08-04
 
 ### Corrigido

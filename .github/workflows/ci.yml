@@ -34,6 +34,8 @@ jobs:
         run: chmod +x install.sh uninstall.sh verify.sh scripts/*.sh bin/*
 
       - name: Executar validação completa
+        env:
+          SSHPLUS_RUN_PANEL_INTEGRATION: "1"
         run: bash ./scripts/ci.sh
 
       - name: Publicar artefatos da execução

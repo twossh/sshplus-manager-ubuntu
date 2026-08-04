@@ -11,8 +11,9 @@ collect_files() {
     {
         printf '%s\n' \
             CHANGELOG.md CONTRIBUTING.md LICENSE NOTICE README.md SECURITY.md SUPPORT.md \
+            .editorconfig .gitattributes .gitignore Makefile \
             REPOSITORY TARGET VERSION install-online.sh install.sh uninstall.sh verify.sh
-        find api bin config database docs lib modules nginx site sudoers systemd web -type f -print
+        find .github api bin config database docs lib modules nginx scripts site sudoers systemd web -type f -print
     } | LC_ALL=C sort -u
 }
 

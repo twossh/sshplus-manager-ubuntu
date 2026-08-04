@@ -3,10 +3,14 @@ declare(strict_types=1);
 
 const SSHPLUS_AUTH_FILE = '/etc/sshplus/panel-auth.json';
 const SSHPLUS_VERSION_FILE = '/opt/sshplus/VERSION';
+const SSHPLUS_PHP_ERROR_LOG = '/var/log/sshplus/php-error.log';
 
 ini_set('display_errors', '0');
 ini_set('log_errors', '1');
 ini_set('expose_php', '0');
+if (is_file(SSHPLUS_PHP_ERROR_LOG) && is_writable(SSHPLUS_PHP_ERROR_LOG)) {
+    ini_set('error_log', SSHPLUS_PHP_ERROR_LOG);
+}
 
 $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
 session_name('sshplus_session');
@@ -17,14 +21,15 @@ session_set_cookie_params([
     'httponly' => true,
     'samesite' => 'Strict',
 ]);
-if (session_status() !== PHP_SESSION_ACTIVE) {
-    session_start();
+if (session_status() !== PHP_SESSION_ACTIVE && !session_start()) {
+    throw new RuntimeException('Não foi possível iniciar a sessão do painel.');
 }
 
 function auth_accounts(): array
 {
     $raw = @file_get_contents(SSHPLUS_AUTH_FILE);
     if ($raw === false || $raw === '') {
+        error_log('Arquivo de autenticação do SSHPlus ausente ou ilegível para o PHP.');
         return [];
     }
     try {
@@ -43,7 +48,7 @@ function find_auth_account(string $username): ?array
         if (!is_array($account)) {
             continue;
         }
-        if (($account['username'] ?? null) === $username) {
+        if (hash_equals((string) ($account['username'] ?? ''), $username)) {
             return $account;
         }
     }
@@ -121,4 +126,9 @@ function version(): string
 {
     $value = @file_get_contents(SSHPLUS_VERSION_FILE);
     return $value === false ? 'desconhecida' : trim($value);
+}
+
+function error_reference(): string
+{
+    return substr(bin2hex(random_bytes(8)), 0, 12);
 }

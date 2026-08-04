@@ -54,6 +54,8 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - name: Validar e gerar artefatos
+        env:
+          SSHPLUS_RUN_PANEL_INTEGRATION: "1"
         run: bash ./scripts/ci.sh
 
       - name: Publicar GitHub Release quando ainda não existir

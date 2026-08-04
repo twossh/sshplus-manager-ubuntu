@@ -9,7 +9,23 @@ $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 
 try {
     if ($path === '/api/health' && $method === 'GET') {
-        json_response(['ok' => true, 'version' => version()]);
+        $agentOk = false;
+        try {
+            $probe = AgentClient::call('health');
+            $agentOk = ($probe['ok'] ?? false) === true;
+        } catch (Throwable $probeError) {
+            error_log('SSHPlus health agent: ' . $probeError->getMessage());
+        }
+        json_response([
+            'ok' => true,
+            'version' => version(),
+            'checks' => [
+                'session' => session_status() === PHP_SESSION_ACTIVE,
+                'auth_readable' => is_readable(SSHPLUS_AUTH_FILE),
+                'auth_accounts' => count(auth_accounts()),
+                'agent' => $agentOk,
+            ],
+        ]);
     }
 
     if ($path === '/api/login' && $method === 'POST') {
@@ -19,20 +35,22 @@ try {
         usleep(250000);
         $account = find_auth_account($username);
         if (!$account || ($account['active'] ?? false) !== true || !password_verify($password, (string) ($account['password_hash'] ?? ''))) {
-            AgentClient::call('audit.write', ['actor' => $username ?: 'unknown', 'event' => 'auth.failed', 'target' => $username, 'success' => 0]);
+            AgentClient::audit(['actor' => $username ?: 'unknown', 'event' => 'auth.failed', 'target' => $username, 'success' => 0]);
             json_response(['ok' => false, 'error' => 'Usuário ou senha inválidos.'], 401);
         }
-        session_regenerate_id(true);
+        if (!session_regenerate_id(true)) {
+            throw new RuntimeException('Não foi possível renovar a sessão de autenticação.');
+        }
         $_SESSION['user'] = ['username' => $account['username'], 'role' => $account['role']];
         $_SESSION['csrf'] = bin2hex(random_bytes(32));
-        AgentClient::call('audit.write', ['event' => 'auth.login', 'target' => $account['username'], 'success' => 1]);
+        AgentClient::audit(['event' => 'auth.login', 'target' => $account['username'], 'success' => 1]);
         json_response(['ok' => true, 'user' => $_SESSION['user'], 'csrf' => $_SESSION['csrf']]);
     }
 
     if ($path === '/api/logout' && $method === 'POST') {
         $user = require_auth();
         require_csrf();
-        AgentClient::call('audit.write', ['event' => 'auth.logout', 'target' => $user['username'], 'success' => 1]);
+        AgentClient::audit(['event' => 'auth.logout', 'target' => $user['username'], 'success' => 1]);
         $_SESSION = [];
         if (ini_get('session.use_cookies')) {
             $params = session_get_cookie_params();
@@ -85,6 +103,7 @@ try {
     $result = AgentClient::call($action, $payload);
     json_response($result, ($result['ok'] ?? false) ? 200 : 400);
 } catch (Throwable $e) {
-    error_log('SSHPlus API: ' . $e->getMessage());
-    json_response(['ok' => false, 'error' => 'Erro interno da API.'], 500);
+    $reference = error_reference();
+    error_log(sprintf('SSHPlus API [%s] %s %s: %s in %s:%d', $reference, $method, $path, $e->getMessage(), $e->getFile(), $e->getLine()));
+    json_response(['ok' => false, 'error' => 'Erro interno da API. Código: ' . $reference], 500);
 }

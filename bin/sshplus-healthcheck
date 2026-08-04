@@ -105,7 +105,7 @@ for file in "${required_files[@]}"; do
     [[ -f "$file" ]] && pass "Arquivo presente: $file" || fail "Arquivo ausente: $file"
 done
 
-for link in /usr/local/sbin/sshplus /usr/local/bin/menu /usr/local/sbin/sshplus-agent /usr/local/sbin/sshplus-healthcheck; do
+for link in /usr/local/sbin/sshplus /usr/local/bin/menu /usr/local/sbin/sshplus-agent /usr/local/sbin/sshplus-healthcheck /usr/local/sbin/sshplus-panel-repair; do
     if [[ -L "$link" && -e "$link" ]]; then
         pass "Atalho válido: $link"
     else
@@ -184,17 +184,36 @@ if [[ "$panel_enabled" == yes ]]; then
             php -r '$d=json_decode(file_get_contents($argv[1]),true); exit(is_array($d)&&isset($d["accounts"]) ? 0 : 1);' "$auth_file" \
                 && pass 'JSON de autenticação válido.' || fail 'JSON de autenticação inválido.'
         fi
+        if id www-data >/dev/null 2>&1; then
+            sudo -u www-data test -r "$auth_file" && pass 'PHP-FPM consegue ler a autenticação.' || fail 'PHP-FPM não consegue ler panel-auth.json.'
+        else
+            fail 'Usuário www-data ausente.'
+        fi
     else
         fail 'Arquivo de autenticação do painel ausente.'
+    fi
+
+    if [[ -f /etc/sudoers.d/sshplus-api ]]; then
+        visudo -cf /etc/sudoers.d/sshplus-api >/dev/null 2>&1 && pass 'Política sudoers do agente válida.' || fail 'Política sudoers do agente inválida.'
+    else
+        fail 'Política sudoers do agente ausente.'
+    fi
+    if id www-data >/dev/null 2>&1 && [[ -x "$SSHPLUS_HOME/bin/sshplus-agent" ]]; then
+        agent_probe="$(printf '{}' | sudo -u www-data sudo -n -- "$SSHPLUS_HOME/bin/sshplus-agent" health 2>&1 || true)"
+        if jq -e '.ok == true' <<< "$agent_probe" >/dev/null 2>&1; then
+            pass 'Ponte PHP/sudo/agente funcionando.'
+        else
+            fail "Ponte PHP/sudo/agente falhou: ${agent_probe:0:180}"
+        fi
     fi
 
     panel_port="${panel_listen##*:}"
     if [[ "$panel_port" =~ ^[0-9]+$ ]] && command_exists curl; then
         api="$(curl -fsS --max-time 5 "http://127.0.0.1:${panel_port}/api/health" 2>/dev/null || true)"
-        if [[ "$api" == *'"ok":true'* ]]; then
-            pass 'API local respondeu com sucesso.'
+        if jq -e '.ok == true and .checks.session == true and .checks.auth_readable == true and .checks.auth_accounts > 0 and .checks.agent == true' <<< "$api" >/dev/null 2>&1; then
+            pass 'API local e integrações responderam com sucesso.'
         else
-            fail 'API local não respondeu corretamente.'
+            fail "API local respondeu com falha interna: ${api:0:180}"
         fi
     else
         warn 'Não foi possível determinar/testar a porta local do painel.'

@@ -3,6 +3,14 @@ set -euo pipefail
 umask 027
 export LC_ALL=C
 
+agent_unexpected_error() {
+    local rc=$?
+    trap - ERR
+    jq -n --arg error "Falha interna do agente administrativo." --argjson code "$rc" '{ok:false,error:$error,code:$code}' 2>/dev/null || printf '{"ok":false,"error":"Falha interna do agente administrativo.","code":1}\n'
+    exit "$rc"
+}
+trap agent_unexpected_error ERR
+
 SSHPLUS_HOME="${SSHPLUS_HOME:-/opt/sshplus}"
 source "$SSHPLUS_HOME/lib/common.sh"
 source "$SSHPLUS_HOME/lib/database.sh"
@@ -95,6 +103,12 @@ status_json() {
 }
 
 case "$action" in
+    health)
+        db_check="$(db_query 'SELECT 1;' 2>/dev/null || true)"
+        [[ "$db_check" == 1 ]] || { json_error 'Banco administrativo indisponível.' 1; exit 1; }
+        jq -n --arg version "$(sshplus_version)" --arg user "$(id -un)" \
+          '{ok:true,data:{version:$version,agent_user:$user,database:true}}'
+        ;;
     status)
         status_json
         ;;

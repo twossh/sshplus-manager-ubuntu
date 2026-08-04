@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 027
+
+SSHPLUS_HOME="${SSHPLUS_HOME:-/opt/sshplus}"
+source "$SSHPLUS_HOME/lib/common.sh"
+source "$SSHPLUS_HOME/lib/database.sh"
+
+require_root
+[[ -r /etc/os-release ]] || die 'Sistema operacional não identificado.'
+# shellcheck disable=SC1091
+source /etc/os-release
+[[ "${ID:-}" == ubuntu ]] || die 'Este reparo é exclusivo para Ubuntu.'
+sshplus_supported_ubuntu "${VERSION_ID:-}" || die 'Use Ubuntu 24.04 LTS ou 26.04 LTS.'
+
+export SSHPLUS_UBUNTU_VERSION_ID="${VERSION_ID:-}"
+PHP_VERSION="$(sshplus_php_version)"
+PHP_FPM_SERVICE="$(sshplus_php_fpm_service)"
+PHP_FPM_SOCKET="$(sshplus_php_fpm_socket)"
+PHP_CLI="$(sshplus_php_cli_binary)"
+PANEL_LISTEN='127.0.0.1:8088'
+
+load_config || true
+[[ "${SSHPLUS_PANEL_LISTEN:-}" =~ ^127\.0\.0\.1:([0-9]{1,5})$ ]] && PANEL_LISTEN="$SSHPLUS_PANEL_LISTEN"
+PANEL_PORT="${PANEL_LISTEN##*:}"
+
+header 'Reparo do painel SSHPlus' "Ubuntu ${VERSION_ID} · PHP ${PHP_VERSION}"
+
+for command in nginx sudo visudo jq curl sqlite3 "$PHP_CLI"; do
+    command -v "$command" >/dev/null 2>&1 || die "Comando obrigatório ausente: $command"
+done
+[[ -x "$SSHPLUS_HOME/bin/sshplus-agent" ]] || die 'Agente administrativo ausente.'
+[[ -f "$SSHPLUS_HOME/nginx/sshplus-panel.conf.template" ]] || die 'Template Nginx ausente.'
+
+getent group sshplus-api >/dev/null 2>&1 || groupadd --system sshplus-api
+id www-data >/dev/null 2>&1 || die 'Usuário www-data não encontrado.'
+usermod -a -G sshplus-api www-data
+
+install -d -m 0750 -o root -g sshplus-api "$SSHPLUS_CONFIG_DIR"
+install -d -m 0750 -o root -g root "$SSHPLUS_STATE_DIR"
+install -d -m 0750 -o root -g adm "$SSHPLUS_LOG_DIR"
+install -d -m 1733 -o root -g root /var/lib/php/sessions
+
+touch "$SSHPLUS_LOG_DIR/panel-access.log" "$SSHPLUS_LOG_DIR/panel-error.log" "$SSHPLUS_LOG_DIR/php-error.log"
+chown root:adm "$SSHPLUS_LOG_DIR/panel-access.log" "$SSHPLUS_LOG_DIR/panel-error.log"
+chmod 0640 "$SSHPLUS_LOG_DIR/panel-access.log" "$SSHPLUS_LOG_DIR/panel-error.log"
+chown root:sshplus-api "$SSHPLUS_LOG_DIR/php-error.log"
+chmod 0660 "$SSHPLUS_LOG_DIR/php-error.log"
+
+db_init
+chown root:root "$SSHPLUS_DB"
+chmod 0600 "$SSHPLUS_DB"
+
+auth_file="$SSHPLUS_CONFIG_DIR/panel-auth.json"
+credentials_created=0
+if [[ -s "$auth_file" ]] && ! jq -e '.version == 1 and (.accounts | type == "array" and length > 0) and all(.accounts[]; (.username | type == "string") and (.password_hash | type == "string") and (.role | IN("admin","operator","viewer")) and (.active | type == "boolean"))' "$auth_file" >/dev/null 2>&1; then
+    mv "$auth_file" "${auth_file}.invalid-$(date +%Y%m%d-%H%M%S)"
+fi
+if [[ ! -s "$auth_file" ]]; then
+    api_count="$(db_query 'SELECT count(*) FROM api_users;' 2>/dev/null || printf 0)"
+    if [[ "$api_count" =~ ^[1-9][0-9]*$ ]]; then
+        rows="$(db_query_json 'SELECT username,password_hash,role,active FROM api_users ORDER BY id;')"
+        printf '%s' "$rows" | jq '{version:1,accounts:map({username:.username,password_hash:.password_hash,role:.role,active:(.active == 1)})}' > "$auth_file.tmp"
+    else
+        username='admin'
+        password="$(openssl rand -hex 16)"
+        hash="$("$PHP_CLI" -r 'echo password_hash($argv[1], PASSWORD_DEFAULT);' "$password")"
+        db_api_user_upsert "$username" "$hash" admin
+        jq -n --arg username "$username" --arg password_hash "$hash" \
+          '{version:1,accounts:[{username:$username,password_hash:$password_hash,role:"admin",active:true}]}' > "$auth_file.tmp"
+        cat > /root/sshplus-panel-credentials.txt <<CRED
+SSHPlus Manager $(sshplus_version)
+Usuário: $username
+Senha: $password
+Acesso local: http://127.0.0.1:$PANEL_PORT
+Túnel SSH: ssh -L $PANEL_PORT:127.0.0.1:$PANEL_PORT usuario@IP_DA_VPS
+CRED
+        chmod 0600 /root/sshplus-panel-credentials.txt
+        credentials_created=1
+    fi
+    install -m 0640 -o root -g sshplus-api "$auth_file.tmp" "$auth_file"
+    rm -f "$auth_file.tmp"
+fi
+chown root:sshplus-api "$auth_file"
+chmod 0640 "$auth_file"
+
+install -m 0440 "$SSHPLUS_HOME/sudoers/sshplus-api" /etc/sudoers.d/sshplus-api
+visudo -cf /etc/sudoers.d/sshplus-api >/dev/null || die 'Política sudoers inválida.'
+
+# Remove configurações temporárias/antigas que podem duplicar o servidor.
+rm -f /etc/nginx/conf.d/sshplus-panel.conf
+install -d -m 0755 /etc/nginx/sites-available /etc/nginx/sites-enabled
+sed -e "s|@PANEL_LISTEN@|$PANEL_LISTEN|g" -e "s|@PHP_FPM_SOCKET@|$PHP_FPM_SOCKET|g" \
+    "$SSHPLUS_HOME/nginx/sshplus-panel.conf.template" > /etc/nginx/sites-available/sshplus-panel
+ln -sfn /etc/nginx/sites-available/sshplus-panel /etc/nginx/sites-enabled/sshplus-panel
+rm -f /etc/nginx/sites-enabled/default
+
+install -d -m 0755 "/etc/php/${PHP_VERSION}/fpm/conf.d"
+cat > "/etc/php/${PHP_VERSION}/fpm/conf.d/99-sshplus.ini" <<PHPINI
+expose_php=Off
+log_errors=On
+error_log=$SSHPLUS_LOG_DIR/php-error.log
+session.cookie_httponly=1
+session.cookie_samesite=Strict
+session.use_strict_mode=1
+session.gc_maxlifetime=3600
+memory_limit=128M
+max_execution_time=600
+post_max_size=128K
+upload_max_filesize=128K
+PHPINI
+
+nginx -t
+systemctl enable "$PHP_FPM_SERVICE" nginx.service >/dev/null
+systemctl restart "$PHP_FPM_SERVICE" nginx.service
+
+sudo -u www-data test -r "$auth_file" || die 'O PHP-FPM não consegue ler a autenticação do painel.'
+agent_json="$(printf '{}' | sudo -u www-data sudo -n -- "$SSHPLUS_HOME/bin/sshplus-agent" health 2>&1)" || {
+    printf '%s\n' "$agent_json" >&2
+    die 'A ponte segura entre PHP e agente root falhou.'
+}
+jq -e '.ok == true' <<< "$agent_json" >/dev/null || {
+    printf '%s\n' "$agent_json" >&2
+    die 'O agente administrativo respondeu com erro.'
+}
+
+health_json="$(curl -fsS --max-time 10 "http://127.0.0.1:${PANEL_PORT}/api/health")" || die 'A API local não respondeu.'
+jq -e '.ok == true and .checks.session == true and .checks.auth_readable == true and .checks.auth_accounts > 0 and .checks.agent == true' \
+    <<< "$health_json" >/dev/null || {
+        printf '%s\n' "$health_json" >&2
+        die 'A API respondeu, mas uma verificação interna falhou.'
+    }
+
+ok 'Painel, autenticação, PHP-FPM e agente administrativo reparados.'
+printf '  Acesso local: http://127.0.0.1:%s\n' "$PANEL_PORT"
+printf '  Túnel: ssh -N -L %s:127.0.0.1:%s root@IP_DA_VPS\n' "$PANEL_PORT" "$PANEL_PORT"
+(( credentials_created == 1 )) && printf '  Nova credencial: /root/sshplus-panel-credentials.txt\n'

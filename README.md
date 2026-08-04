@@ -82,6 +82,7 @@ Comandos úteis:
 ```bash
 sudo sshplus --panel-status
 sudo sshplus --panel-reset-password
+sudo sshplus --panel-repair
 sudo sshplus --healthcheck
 ```
 
@@ -111,6 +112,18 @@ sudo sshplus --update
 sudo badvpn
 sudo slowdns
 ```
+
+## Reparar o painel
+
+Se o painel responder com erro interno, execute:
+
+```bash
+sudo sshplus --panel-repair
+```
+
+O reparo valida Nginx, o socket PHP-FPM correto para o Ubuntu, leitura da
+credencial por `www-data`, política `sudoers`, agente root, banco SQLite, sessão
+PHP e o endpoint `/api/health`.
 
 ## Segurança da API
 
