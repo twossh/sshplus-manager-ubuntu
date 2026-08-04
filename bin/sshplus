@@ -114,6 +114,7 @@ case "${1:-}" in
     --panel-status) panel_status; exit 0 ;;
     --panel-reset-password) panel_reset_password; exit $? ;;
     --panel-repair) "$SSHPLUS_HOME/bin/sshplus-repair"; exit $? ;;
+    --panel-public) shift; "$SSHPLUS_HOME/bin/sshplus-panel-public" "$@"; exit $? ;;
     --repair) "$SSHPLUS_HOME/bin/sshplus-repair"; exit $? ;;
     --healthcheck) "$SSHPLUS_HOME/bin/sshplus-healthcheck"; exit $? ;;
     --help|-h)
@@ -130,6 +131,7 @@ Sem opções: abre o menu CLI.
   --panel-status exibe acesso e status do painel
   --panel-reset-password redefine a credencial administrativa
   --panel-repair repara toda a integração, incluindo o painel
+  --panel-public gerencia domínio e HTTPS público (status/enable/disable/renew)
   --repair       recria configuração, atalhos, timers e painel
   --healthcheck  executa diagnóstico pós-instalação
   --help         exibe esta ajuda

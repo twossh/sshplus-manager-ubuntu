@@ -34,9 +34,17 @@ sudo sshplus --panel-reset-password
 
 ## Publicação por HTTPS
 
-A v5.0 não expõe o painel diretamente. Para acesso remoto permanente, utilize
-um proxy reverso com HTTPS, autenticação adicional e lista de IPs permitidos.
-Não abra a porta 8088 no UFW.
+O painel permanece local por padrão. Para ativar um domínio com certificado
+Let’s Encrypt, use:
+
+```bash
+sudo sshplus --panel-public enable \
+  --domain painel.exemplo.com \
+  --email admin@exemplo.com
+```
+
+Consulte [Painel público com domínio e HTTPS](PAINEL-PUBLICO.md). A porta 8088
+não deve ser aberta no firewall.
 
 ## Isolamento de dados
 

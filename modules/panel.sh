@@ -14,15 +14,30 @@ panel_status() {
     printf '  PHP %s:     %s\n' "$php_version" "$(service_status_text "$php_service")"
     printf '  Endereço:    %s\n' "$(panel_url)"
     printf '  Banco:       %s\n' "$SSHPLUS_DB"
-    printf '  Credenciais: /root/sshplus-panel-credentials.txt\n\n'
+    printf '  Credenciais: /root/sshplus-panel-credentials.txt\n'
+    if [[ -x "$SSHPLUS_HOME/bin/sshplus-panel-public" ]]; then
+        local public_status public_domain
+        public_status='no'; public_domain=''
+        if [[ -r "$SSHPLUS_CONFIG_DIR/panel-public.conf" ]]; then
+            public_status="$(sed -nE 's/^SSHPLUS_PANEL_PUBLIC_ENABLED="?([^"]+)"?$/\1/p' "$SSHPLUS_CONFIG_DIR/panel-public.conf" | tail -n1)"
+            public_domain="$(sed -nE 's/^SSHPLUS_PANEL_PUBLIC_DOMAIN="?([^"]*)"?$/\1/p' "$SSHPLUS_CONFIG_DIR/panel-public.conf" | tail -n1)"
+        fi
+        printf '  HTTPS público: %s' "${public_status:-no}"
+        [[ -n "$public_domain" ]] && printf ' — https://%s' "$public_domain"
+        printf '\n'
+    fi
+    printf '\n'
+    local panel_listen panel_port
+    panel_listen="${SSHPLUS_PANEL_LISTEN:-127.0.0.1:8088}"
+    panel_port="${panel_listen##*:}"; panel_port="${panel_port%]}"
     printf 'Acesso recomendado a partir do computador local:\n'
-    printf '  ssh -L 8088:127.0.0.1:8088 usuario@IP_DA_VPS\n'
-    printf '  abra http://127.0.0.1:8088 no navegador\n'
+    printf '  ssh -L %s:127.0.0.1:%s usuario@IP_DA_VPS\n' "$panel_port" "$panel_port"
+    printf '  abra http://127.0.0.1:%s no navegador\n' "$panel_port"
 }
 
 panel_reset_password() {
     require_root
-    local username password hash auth_file auth_tmp listen port php_cli
+    local username password hash auth_file auth_tmp listen port php_cli public_domain public_enabled
     username="$(prompt_value 'Usuário do painel' 'admin')" || return
     valid_username "$username" || { error 'Usuário inválido.'; return; }
     password="$(prompt_secret_confirmed 'Nova senha')" || return
@@ -45,6 +60,11 @@ Senha: $password
 Acesso local: http://$listen
 Túnel SSH: ssh -L $port:127.0.0.1:$port usuario@IP_DA_VPS
 CRED
+    if [[ -r "$SSHPLUS_CONFIG_DIR/panel-public.conf" ]]; then
+        public_domain="$(sed -nE 's/^SSHPLUS_PANEL_PUBLIC_DOMAIN="?([^"]*)"?$/\1/p' "$SSHPLUS_CONFIG_DIR/panel-public.conf" | tail -n1)"
+        public_enabled="$(sed -nE 's/^SSHPLUS_PANEL_PUBLIC_ENABLED="?([^"]+)"?$/\1/p' "$SSHPLUS_CONFIG_DIR/panel-public.conf" | tail -n1)"
+        [[ "$public_enabled" == yes && -n "$public_domain" ]] && printf 'Acesso HTTPS: https://%s\n' "$public_domain" >> /root/sshplus-panel-credentials.txt
+    fi
     chmod 0600 /root/sshplus-panel-credentials.txt
     audit_log root cli panel.password "$username" 1
     ok 'Credencial atualizada.'
@@ -57,7 +77,7 @@ panel_show_credentials() {
 }
 
 panel_menu() {
-    local option
+    local option domain email
     while true; do
         header 'Painel web e API REST'
         printf '  1) Exibir status e instruções de acesso\n'
@@ -65,6 +85,10 @@ panel_menu() {
         printf '  3) Exibir credencial inicial\n'
         printf '  4) Reiniciar Nginx e PHP-FPM\n'
         printf '  5) Reparar e validar o painel\n'
+        printf '  6) Status do domínio/HTTPS público\n'
+        printf '  7) Ativar domínio/HTTPS público\n'
+        printf '  8) Desativar domínio/HTTPS público\n'
+        printf '  9) Verificar renovação do certificado\n'
         printf '  0) Voltar\n\n'
         read -r -p 'Opção: ' option || return
         case "$option" in
@@ -73,6 +97,15 @@ panel_menu() {
             3) panel_show_credentials; pause ;;
             4) systemctl restart "$(sshplus_php_fpm_service)" nginx.service && ok 'Painel reiniciado.'; pause ;;
             5) "$SSHPLUS_HOME/bin/sshplus-panel-repair"; pause ;;
+            6) "$SSHPLUS_HOME/bin/sshplus-panel-public" status; pause ;;
+            7)
+                domain="$(prompt_value 'Domínio do painel (ex.: painel.exemplo.com)' '')" || continue
+                email="$(prompt_value 'E-mail para o Let’s Encrypt' '')" || continue
+                "$SSHPLUS_HOME/bin/sshplus-panel-public" enable --domain "$domain" --email "$email"
+                pause
+                ;;
+            8) "$SSHPLUS_HOME/bin/sshplus-panel-public" disable; pause ;;
+            9) "$SSHPLUS_HOME/bin/sshplus-panel-public" renew; pause ;;
             0) return ;;
             *) warn 'Opção inválida.'; sleep 1 ;;
         esac

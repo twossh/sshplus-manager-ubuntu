@@ -77,11 +77,24 @@ Depois abra:
 http://127.0.0.1:8088
 ```
 
+### Domínio e HTTPS opcionais
+
+Com o DNS já apontado para a VPS:
+
+```bash
+sudo sshplus --panel-public enable \
+  --domain painel.exemplo.com \
+  --email admin@exemplo.com
+```
+
+O acesso local em `127.0.0.1:8088` continua disponível.
+
 Comandos úteis:
 
 ```bash
 sudo sshplus --panel-status
 sudo sshplus --panel-reset-password
+sudo sshplus --panel-public status
 sudo sshplus --healthcheck
 ```
 
@@ -168,6 +181,7 @@ Documentação:
 
 - [Arquitetura](docs/ARQUITETURA.md)
 - [Painel e acesso](docs/PAINEL.md)
+- [Domínio e HTTPS](docs/PAINEL-PUBLICO.md)
 - [Homologação pós-instalação](docs/HOMOLOGACAO.md)
 - [API REST](docs/API.md)
 - [Migração para v5](docs/MIGRACAO-V5.md)

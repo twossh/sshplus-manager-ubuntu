@@ -68,6 +68,7 @@ required=(
     "$SSHPLUS_HOME/bin/sshplus-metrics"
     "$SSHPLUS_HOME/bin/sshplus-healthcheck"
     "$SSHPLUS_HOME/bin/sshplus-panel-repair"
+    "$SSHPLUS_HOME/bin/sshplus-panel-public"
     "$SSHPLUS_HOME/bin/sshplus-repair"
     "$SSHPLUS_HOME/lib/common.sh"
     "$SSHPLUS_HOME/lib/database.sh"
@@ -118,7 +119,7 @@ chown root:"$API_GROUP" "$SSHPLUS_CONF"
 chmod 0640 "$SSHPLUS_CONF"
 load_config
 
-for log_file in sshplus.log operations.log panel-access.log panel-error.log; do
+for log_file in sshplus.log operations.log panel-access.log panel-error.log panel-public-access.log panel-public-error.log; do
     touch "$SSHPLUS_LOG_DIR/$log_file"
     chown root:adm "$SSHPLUS_LOG_DIR/$log_file"
     chmod 0640 "$SSHPLUS_LOG_DIR/$log_file"
@@ -186,6 +187,7 @@ link_command "$SSHPLUS_HOME/bin/sshplus" "$LOCAL_BIN/menu"
 link_command "$SSHPLUS_HOME/bin/sshplus-agent" "$LOCAL_SBIN/sshplus-agent"
 link_command "$SSHPLUS_HOME/bin/sshplus-healthcheck" "$LOCAL_SBIN/sshplus-healthcheck"
 link_command "$SSHPLUS_HOME/bin/sshplus-panel-repair" "$LOCAL_SBIN/sshplus-panel-repair"
+link_command "$SSHPLUS_HOME/bin/sshplus-panel-public" "$LOCAL_SBIN/sshplus-panel-public"
 link_command "$SSHPLUS_HOME/bin/sshplus-repair" "$LOCAL_SBIN/sshplus-repair"
 link_command "$SSHPLUS_HOME/bin/sshplus-badvpn" "$LOCAL_SBIN/sshplus-badvpn"
 link_command "$SSHPLUS_HOME/bin/sshplus-badvpn" "$LOCAL_SBIN/badvpn"

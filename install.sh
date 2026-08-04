@@ -64,7 +64,9 @@ install -d -m 0700 "$backup_dir" "$RELEASE_BACKUP_ROOT"
 backup_path() { local path="$1"; [[ -e "$path" || -L "$path" ]] && cp -a --parents "$path" "$backup_dir/" || true; }
 for path in /etc/ssh/sshd_config.d/00-sshplus.conf /etc/ssh/sshd_config.d/90-sshplus.conf "$CONF_DIR" "$STATE_DIR" \
   /etc/fail2ban/jail.d/sshplus.local /etc/logrotate.d/sshplus /etc/tmpfiles.d/sshplus.conf \
-  /etc/nginx/sites-available/sshplus-panel /etc/nginx/sites-enabled/sshplus-panel /etc/nginx/conf.d/sshplus-panel.conf /etc/sudoers.d/sshplus-api; do backup_path "$path"; done
+  /etc/nginx/sites-available/sshplus-panel /etc/nginx/sites-enabled/sshplus-panel /etc/nginx/conf.d/sshplus-panel.conf \
+  /etc/nginx/sites-available/sshplus-panel-public /etc/nginx/sites-enabled/sshplus-panel-public \
+  /etc/sudoers.d/sshplus-api; do backup_path "$path"; done
 
 if [[ -d "$TARGET" && -r "$TARGET/VERSION" ]]; then
     old_version="$(tr -d '\r\n' < "$TARGET/VERSION")"
@@ -204,6 +206,7 @@ ln -sfn "$TARGET/bin/sshplus-slowdns" /usr/local/sbin/sshplus-slowdns; ln -sfn "
 ln -sfn "$TARGET/bin/sshplus-agent" /usr/local/sbin/sshplus-agent
 ln -sfn "$TARGET/bin/sshplus-healthcheck" /usr/local/sbin/sshplus-healthcheck
 ln -sfn "$TARGET/bin/sshplus-panel-repair" /usr/local/sbin/sshplus-panel-repair
+ln -sfn "$TARGET/bin/sshplus-panel-public" /usr/local/sbin/sshplus-panel-public
 ln -sfn "$TARGET/bin/sshplus-repair" /usr/local/sbin/sshplus-repair
 
 if (( PANEL_ENABLED == 1 )); then
@@ -270,4 +273,4 @@ if (( PANEL_ENABLED == 1 )); then
     printf '  Túnel SSH:          ssh -L %s:127.0.0.1:%s usuario@IP_DA_VPS\n' "$panel_port" "$panel_port"
     (( credentials_created == 1 )) && printf '  Credencial inicial: /root/sshplus-panel-credentials.txt\n'
 fi
-printf '\nA autenticação root por senha não foi habilitada. O painel não foi exposto à internet.\n'
+printf '\nA autenticação root por senha não foi habilitada. O painel público é opcional e exige domínio + HTTPS.\n'

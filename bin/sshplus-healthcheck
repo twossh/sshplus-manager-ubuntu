@@ -105,7 +105,7 @@ for file in "${required_files[@]}"; do
     [[ -f "$file" ]] && pass "Arquivo presente: $file" || fail "Arquivo ausente: $file"
 done
 
-for link in /usr/local/sbin/sshplus /usr/local/bin/menu /usr/local/sbin/sshplus-agent /usr/local/sbin/sshplus-healthcheck /usr/local/sbin/sshplus-panel-repair /usr/local/sbin/sshplus-repair; do
+for link in /usr/local/sbin/sshplus /usr/local/bin/menu /usr/local/sbin/sshplus-agent /usr/local/sbin/sshplus-healthcheck /usr/local/sbin/sshplus-panel-repair /usr/local/sbin/sshplus-panel-public /usr/local/sbin/sshplus-repair; do
     if [[ -L "$link" && -e "$link" ]]; then
         pass "Atalho válido: $link"
     else
@@ -204,6 +204,19 @@ if [[ "$panel_enabled" == yes ]]; then
             pass 'Ponte PHP/sudo/agente funcionando.'
         else
             fail "Ponte PHP/sudo/agente falhou: ${agent_probe:0:180}"
+        fi
+    fi
+
+
+    public_conf="$SSHPLUS_CONFIG_DIR/panel-public.conf"
+    if [[ -r "$public_conf" ]]; then
+        public_enabled="$(sed -nE 's/^SSHPLUS_PANEL_PUBLIC_ENABLED="?([^"]+)"?$/\1/p' "$public_conf" | tail -n1)"
+        public_domain="$(sed -nE 's/^SSHPLUS_PANEL_PUBLIC_DOMAIN="?([^"]*)"?$/\1/p' "$public_conf" | tail -n1)"
+        if [[ "$public_enabled" == yes ]]; then
+            [[ -n "$public_domain" ]] && pass "Painel HTTPS configurado: $public_domain." || fail 'Painel público ativo sem domínio.'
+            [[ -L /etc/nginx/sites-enabled/sshplus-panel-public ]] && pass 'Site HTTPS público habilitado no Nginx.' || fail 'Site HTTPS público ausente no Nginx.'
+            [[ -r "/etc/letsencrypt/live/$public_domain/fullchain.pem" && -r "/etc/letsencrypt/live/$public_domain/privkey.pem" ]] && pass 'Certificado HTTPS presente.' || fail 'Certificado HTTPS ausente.'
+            check_unit_active certbot.timer 'Renovação automática do certificado'
         fi
     fi
 

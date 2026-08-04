@@ -38,6 +38,7 @@ run_repair_integration() {
 }
 
 run_repair_integration
+bash ./scripts/test-panel-public.sh
 bash ./scripts/build-release.sh
 
 # Valida os checksums da Release e o nome usado pelo instalador online.

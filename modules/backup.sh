@@ -9,6 +9,7 @@ backup_paths() {
     [[ -d /etc/slowdns ]] && paths+=("etc/slowdns")
     [[ -f /etc/fail2ban/jail.d/sshplus.local ]] && paths+=("etc/fail2ban/jail.d/sshplus.local")
     [[ -f /etc/nginx/sites-available/sshplus-panel ]] && paths+=("etc/nginx/sites-available/sshplus-panel")
+    [[ -f /etc/nginx/sites-available/sshplus-panel-public ]] && paths+=("etc/nginx/sites-available/sshplus-panel-public")
     [[ -f /etc/sudoers.d/sshplus-api ]] && paths+=("etc/sudoers.d/sshplus-api")
     [[ -f /etc/nftables.d/sshplus-openvpn.nft ]] && paths+=("etc/nftables.d/sshplus-openvpn.nft")
     [[ -f /etc/systemd/system/sshplus-openvpn-nat.service ]] && paths+=("etc/systemd/system/sshplus-openvpn-nat.service")

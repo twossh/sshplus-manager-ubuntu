@@ -1,0 +1,273 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 027
+
+SSHPLUS_HOME="${SSHPLUS_HOME:-/opt/sshplus}"
+# shellcheck source=/opt/sshplus/lib/common.sh
+source "$SSHPLUS_HOME/lib/common.sh"
+
+require_root
+
+PUBLIC_CONF="${SSHPLUS_PANEL_PUBLIC_CONF:-$SSHPLUS_CONFIG_DIR/panel-public.conf}"
+NGINX_AVAILABLE="${SSHPLUS_PANEL_PUBLIC_NGINX_AVAILABLE:-/etc/nginx/sites-available/sshplus-panel-public}"
+NGINX_ENABLED="${SSHPLUS_PANEL_PUBLIC_NGINX_ENABLED:-/etc/nginx/sites-enabled/sshplus-panel-public}"
+ACME_ROOT="${SSHPLUS_PANEL_ACME_ROOT:-/var/lib/sshplus/acme}"
+TEMPLATE="$SSHPLUS_HOME/nginx/sshplus-panel-public.conf.template"
+
+ACTION="${1:-status}"
+[[ $# -gt 0 ]] && shift || true
+DOMAIN=''
+EMAIL=''
+FORCE=0
+STAGING=0
+OPEN_FIREWALL=1
+PURGE_CERTIFICATE=0
+
+usage() {
+    cat <<'USAGE'
+Uso: sudo sshplus --panel-public AÇÃO [opções]
+
+Ações:
+  status
+  enable  --domain painel.exemplo.com --email admin@exemplo.com
+  disable [--purge-certificate]
+  renew
+
+Opções de enable:
+  --domain DOMINIO       domínio público já apontado para a VPS
+  --email EMAIL          e-mail para avisos do Let's Encrypt
+  --force                continuar mesmo se o DNS não apontar para o IPv4 detectado
+  --staging              usar o ambiente de testes do Let's Encrypt
+  --no-firewall          não criar regras UFW para 80/TCP e 443/TCP
+
+O painel local em 127.0.0.1:8088 permanece ativo em todos os modos.
+USAGE
+}
+
+while (( $# > 0 )); do
+    case "$1" in
+        --domain) shift; DOMAIN="${1:-}" ;;
+        --email) shift; EMAIL="${1:-}" ;;
+        --force) FORCE=1 ;;
+        --staging) STAGING=1 ;;
+        --no-firewall) OPEN_FIREWALL=0 ;;
+        --purge-certificate) PURGE_CERTIFICATE=1 ;;
+        -h|--help) usage; exit 0 ;;
+        *) die "Opção desconhecida: $1" ;;
+    esac
+    shift
+done
+
+valid_domain() {
+    local value="${1,,}"
+    [[ ${#value} -le 253 ]] || return 1
+    [[ "$value" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]]
+}
+
+valid_email() {
+    local value="$1"
+    [[ ${#value} -le 254 && "$value" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]]
+}
+
+read_public_config() {
+    SSHPLUS_PANEL_PUBLIC_ENABLED='no'
+    SSHPLUS_PANEL_PUBLIC_DOMAIN=''
+    SSHPLUS_PANEL_PUBLIC_EMAIL=''
+    if [[ -r "$PUBLIC_CONF" ]]; then
+        # shellcheck disable=SC1090
+        source "$PUBLIC_CONF"
+    fi
+}
+
+write_public_config() {
+    local enabled="$1" domain="$2" email="$3" tmp
+    install -d -m 0750 -o root -g sshplus-api "$SSHPLUS_CONFIG_DIR"
+    tmp="$(mktemp "$SSHPLUS_CONFIG_DIR/.panel-public.XXXXXX")"
+    cat > "$tmp" <<CONF
+SSHPLUS_PANEL_PUBLIC_ENABLED="$enabled"
+SSHPLUS_PANEL_PUBLIC_DOMAIN="$domain"
+SSHPLUS_PANEL_PUBLIC_EMAIL="$email"
+CONF
+    install -m 0640 -o root -g sshplus-api "$tmp" "$PUBLIC_CONF"
+    rm -f "$tmp"
+}
+
+render_public_nginx() {
+    local domain="$1" php_socket="$2" fullchain="$3" privkey="$4"
+    [[ -f "$TEMPLATE" ]] || die "Template Nginx ausente: $TEMPLATE"
+    sed \
+        -e "s|@DOMAIN@|$domain|g" \
+        -e "s|@ACME_ROOT@|$ACME_ROOT|g" \
+        -e "s|@FULLCHAIN@|$fullchain|g" \
+        -e "s|@PRIVKEY@|$privkey|g" \
+        -e "s|@PHP_FPM_SOCKET@|$php_socket|g" \
+        "$TEMPLATE" > "$NGINX_AVAILABLE"
+    chmod 0644 "$NGINX_AVAILABLE"
+}
+
+write_acme_nginx() {
+    local domain="$1"
+    cat > "$NGINX_AVAILABLE" <<NGINX
+server {
+    listen 80;
+    listen [::]:80;
+    server_name $domain;
+
+    location ^~ /.well-known/acme-challenge/ {
+        root $ACME_ROOT;
+        default_type text/plain;
+        try_files \$uri =404;
+    }
+
+    location / {
+        default_type text/plain;
+        return 200 'SSHPlus Manager: preparando HTTPS.\n';
+    }
+}
+NGINX
+    chmod 0644 "$NGINX_AVAILABLE"
+}
+
+ensure_local_panel() {
+    [[ -x "$SSHPLUS_HOME/bin/sshplus-panel-repair" ]] || die 'Reparador do painel não encontrado.'
+    SSHPLUS_CORE_REPAIR_ACTIVE=1 "$SSHPLUS_HOME/bin/sshplus-panel-repair"
+}
+
+check_dns() {
+    local domain="$1" public_ip resolved
+    public_ip="$(get_public_ipv4)"
+    resolved="$(getent ahostsv4 "$domain" 2>/dev/null | awk '{print $1}' | LC_ALL=C sort -u | paste -sd, -)"
+    [[ -n "$resolved" ]] || die "O domínio $domain ainda não possui registro IPv4 público."
+    printf '  IPv4 da VPS: %s\n' "$public_ip"
+    printf '  DNS atual:   %s\n' "$resolved"
+    if [[ "$public_ip" != indisponível ]] && ! tr ',' '\n' <<< "$resolved" | grep -Fxq "$public_ip"; then
+        (( FORCE == 1 )) || die "O DNS de $domain não aponta para $public_ip. Corrija o registro A ou use --force."
+        warn 'DNS divergente; continuando por solicitação.'
+    fi
+}
+
+open_firewall() {
+    (( OPEN_FIREWALL == 1 )) || { warn 'Regras UFW não foram alteradas.'; return; }
+    command -v ufw >/dev/null 2>&1 || { warn 'UFW não instalado; libere 80/TCP e 443/TCP no firewall externo.'; return; }
+    if ufw status 2>/dev/null | grep -q '^Status: active'; then
+        ufw allow 80/tcp >/dev/null
+        ufw allow 443/tcp >/dev/null
+        ok 'Portas 80/TCP e 443/TCP liberadas no UFW.'
+    else
+        warn 'UFW está inativo; confirme as regras do firewall do provedor.'
+    fi
+}
+
+show_status() {
+    local cert_file expiry='não disponível'
+    read_public_config
+    header 'Painel público HTTPS' 'Acesso externo opcional'
+    printf '  Ativado:     %s\n' "$SSHPLUS_PANEL_PUBLIC_ENABLED"
+    printf '  Domínio:     %s\n' "${SSHPLUS_PANEL_PUBLIC_DOMAIN:-não configurado}"
+    printf '  Configuração:%s\n' " $PUBLIC_CONF"
+    printf '  Site Nginx:  %s\n' "$([[ -L "$NGINX_ENABLED" ]] && echo habilitado || echo desabilitado)"
+    if [[ -n "$SSHPLUS_PANEL_PUBLIC_DOMAIN" ]]; then
+        cert_file="/etc/letsencrypt/live/$SSHPLUS_PANEL_PUBLIC_DOMAIN/fullchain.pem"
+        if [[ -r "$cert_file" ]] && command -v openssl >/dev/null 2>&1; then
+            expiry="$(openssl x509 -in "$cert_file" -noout -enddate 2>/dev/null | cut -d= -f2- || true)"
+        fi
+        printf '  URL:         https://%s\n' "$SSHPLUS_PANEL_PUBLIC_DOMAIN"
+    fi
+    printf '  Certificado: %s\n' "$expiry"
+    printf '  Nginx:       %s\n' "$(service_status_text nginx.service)"
+    printf '  Certbot:     %s\n' "$(service_status_text certbot.timer)"
+}
+
+enable_public() {
+    [[ -n "$DOMAIN" && -n "$EMAIL" ]] || die 'Informe --domain e --email.'
+    DOMAIN="${DOMAIN,,}"
+    valid_domain "$DOMAIN" || die 'Domínio inválido. Use um FQDN como painel.exemplo.com.'
+    valid_email "$EMAIL" || die 'E-mail inválido.'
+    [[ -r /etc/os-release ]] || die 'Sistema operacional não identificado.'
+    # shellcheck disable=SC1091
+    source /etc/os-release
+    [[ "${ID:-}" == ubuntu ]] || die 'Recurso disponível apenas no Ubuntu.'
+    sshplus_supported_ubuntu "${VERSION_ID:-}" || die 'Use Ubuntu 24.04 ou 26.04 LTS.'
+
+    header 'Ativar painel público HTTPS' "$DOMAIN"
+    check_dns "$DOMAIN"
+    ensure_local_panel
+    apt_install certbot
+
+    install -d -m 0755 /etc/nginx/sites-available /etc/nginx/sites-enabled
+    install -d -m 0755 "$ACME_ROOT/.well-known/acme-challenge"
+    touch "$SSHPLUS_LOG_DIR/panel-public-access.log" "$SSHPLUS_LOG_DIR/panel-public-error.log"
+    chown root:adm "$SSHPLUS_LOG_DIR/panel-public-access.log" "$SSHPLUS_LOG_DIR/panel-public-error.log"
+    chmod 0640 "$SSHPLUS_LOG_DIR/panel-public-access.log" "$SSHPLUS_LOG_DIR/panel-public-error.log"
+
+    backup_dir="$SSHPLUS_BACKUP_DIR/panel-public/$(date +%Y%m%d-%H%M%S)"
+    install -d -m 0700 "$backup_dir"
+    [[ -e "$NGINX_AVAILABLE" ]] && cp -a "$NGINX_AVAILABLE" "$backup_dir/" || true
+    [[ -e "$PUBLIC_CONF" ]] && cp -a "$PUBLIC_CONF" "$backup_dir/" || true
+
+    write_acme_nginx "$DOMAIN"
+    ln -sfn "$NGINX_AVAILABLE" "$NGINX_ENABLED"
+    nginx -t
+    systemctl reload nginx.service
+    open_firewall
+
+    certbot_args=(certonly --webroot -w "$ACME_ROOT" -d "$DOMAIN" --email "$EMAIL" --agree-tos --non-interactive --keep-until-expiring)
+    (( STAGING == 1 )) && certbot_args+=(--staging)
+    certbot "${certbot_args[@]}"
+
+    fullchain="/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
+    privkey="/etc/letsencrypt/live/$DOMAIN/privkey.pem"
+    [[ -s "$fullchain" && -s "$privkey" ]] || die 'O certificado foi solicitado, mas seus arquivos não foram encontrados.'
+
+    php_socket="$(sshplus_php_fpm_socket "${VERSION_ID:-}")"
+    render_public_nginx "$DOMAIN" "$php_socket" "$fullchain" "$privkey"
+    nginx -t
+    systemctl enable --now certbot.timer >/dev/null 2>&1 || true
+    systemctl reload nginx.service
+    write_public_config yes "$DOMAIN" "$EMAIL"
+
+    if [[ -f /root/sshplus-panel-credentials.txt ]]; then
+        sed -i '/^Acesso HTTPS:/d' /root/sshplus-panel-credentials.txt
+        printf 'Acesso HTTPS: https://%s\n' "$DOMAIN" >> /root/sshplus-panel-credentials.txt
+        chmod 0600 /root/sshplus-panel-credentials.txt
+    fi
+
+    curl_args=(-fsS --resolve "$DOMAIN:443:127.0.0.1")
+    (( STAGING == 1 )) && curl_args+=(-k)
+    curl "${curl_args[@]}" "https://$DOMAIN/api/health" | jq -e '.ok == true' >/dev/null || \
+        die 'HTTPS foi configurado, mas a API não respondeu no teste local.'
+
+    ok "Painel público ativado em https://$DOMAIN"
+    printf '  O painel local continua em http://127.0.0.1:8088.\n'
+    printf '  Backup anterior: %s\n' "$backup_dir"
+}
+
+disable_public() {
+    read_public_config
+    domain="$SSHPLUS_PANEL_PUBLIC_DOMAIN"
+    rm -f "$NGINX_ENABLED" "$NGINX_AVAILABLE"
+    nginx -t
+    systemctl reload nginx.service
+    write_public_config no "$domain" "$SSHPLUS_PANEL_PUBLIC_EMAIL"
+    if (( PURGE_CERTIFICATE == 1 )) && [[ -n "$domain" ]] && command -v certbot >/dev/null 2>&1; then
+        certbot delete --cert-name "$domain" --non-interactive || warn 'Não foi possível remover o certificado automaticamente.'
+    fi
+    ok 'Acesso público desativado. O painel local e o túnel SSH permanecem disponíveis.'
+}
+
+renew_certificate() {
+    command -v certbot >/dev/null 2>&1 || die 'Certbot não está instalado.'
+    certbot renew --quiet
+    nginx -t
+    systemctl reload nginx.service
+    ok 'Renovação verificada e Nginx recarregado.'
+}
+
+case "$ACTION" in
+    status) show_status ;;
+    enable) enable_public ;;
+    disable) disable_public ;;
+    renew) renew_certificate ;;
+    help|-h|--help) usage ;;
+    *) usage >&2; die "Ação inválida: $ACTION" ;;
+esac

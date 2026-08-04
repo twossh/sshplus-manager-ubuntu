@@ -57,6 +57,7 @@ grep -q '^SSHPLUS_PANEL_LISTEN="127.0.0.1:8088"$' "$TMP/etc/sshplus.conf"
 [[ -L "$TMP/local-sbin/sshplus-agent" && -e "$TMP/local-sbin/sshplus-agent" ]]
 [[ -L "$TMP/local-sbin/sshplus-healthcheck" && -e "$TMP/local-sbin/sshplus-healthcheck" ]]
 [[ -L "$TMP/local-sbin/sshplus-panel-repair" && -e "$TMP/local-sbin/sshplus-panel-repair" ]]
+[[ -L "$TMP/local-sbin/sshplus-panel-public" && -e "$TMP/local-sbin/sshplus-panel-public" ]]
 [[ -L "$TMP/local-sbin/sshplus-repair" && -e "$TMP/local-sbin/sshplus-repair" ]]
 [[ -f "$TMP/systemd/sshplus-expirer.timer" ]]
 [[ -f "$TMP/systemd/sshplus-limiter.timer" ]]

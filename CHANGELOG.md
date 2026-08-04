@@ -4,6 +4,21 @@ Todas as alterações relevantes deste projeto são registradas neste arquivo.
 
 ## [Unreleased]
 
+## [5.2.0] - 2026-08-04
+
+### Adicionado
+
+- Publicação opcional do painel em domínio próprio com HTTPS Let's Encrypt.
+- Comando `sudo sshplus --panel-public` para ativar, consultar, renovar ou desativar o acesso externo.
+- Redirecionamento HTTP→HTTPS, HSTS, TLS 1.2/1.3 e renovação automática por `certbot.timer`.
+- Diagnóstico do certificado e do site público no healthcheck.
+- Teste isolado da configuração Nginx HTTPS no GitHub Actions.
+
+### Alterado
+
+- O painel local em `127.0.0.1:8088` permanece ativo mesmo quando o domínio público é habilitado.
+- O arquivo de credenciais passa a registrar a URL HTTPS quando configurada.
+
 ## [5.1.5] - 2026-08-04
 
 ### Corrigido

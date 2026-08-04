@@ -30,7 +30,7 @@ jobs:
       - name: Instalar ferramentas de validação
         run: |
           sudo apt-get update
-          sudo apt-get install --yes shellcheck zip sqlite3 php-cli sudo
+          sudo apt-get install --yes shellcheck zip sqlite3 php-cli sudo nginx openssl
 
       - name: Normalizar permissões dos scripts
         run: chmod +x install-online.sh install.sh uninstall.sh verify.sh scripts/*.sh bin/*
