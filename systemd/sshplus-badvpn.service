@@ -1,0 +1,46 @@
+[Unit]
+Description=SSHPlus BadVPN UDP Gateway
+Documentation=https://github.com/ambrop72/badvpn
+After=network-online.target
+Wants=network-online.target
+ConditionFileIsExecutable=/usr/local/sbin/badvpn-udpgw
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/sshplus/badvpn.env
+ExecStart=/usr/local/sbin/badvpn-udpgw --logger stdout --loglevel ${BADVPN_LOGLEVEL} --listen-addr ${BADVPN_LISTEN_ADDR} --max-clients ${BADVPN_MAX_CLIENTS} --max-connections-for-client ${BADVPN_MAX_CONNECTIONS_PER_CLIENT} --client-socket-sndbuf ${BADVPN_CLIENT_SNDBUF}
+Restart=on-failure
+RestartSec=3s
+TimeoutStopSec=15s
+StandardOutput=journal
+StandardError=journal
+OOMPolicy=stop
+TasksMax=4096
+DynamicUser=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+UMask=0077
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

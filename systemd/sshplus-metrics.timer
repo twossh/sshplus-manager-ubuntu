@@ -1,0 +1,13 @@
+[Unit]
+Description=Coleta métricas do SSHPlus a cada cinco minutos
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+AccuracySec=30s
+RandomizedDelaySec=15s
+Persistent=true
+Unit=sshplus-metrics.service
+
+[Install]
+WantedBy=timers.target

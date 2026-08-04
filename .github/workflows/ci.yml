@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validar scripts e pacote
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Obter código
+        uses: actions/checkout@v7
+
+      - name: Instalar ferramentas de validação
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes shellcheck zip sqlite3 php-cli sudo
+
+      - name: Normalizar permissões dos scripts
+        run: chmod +x install.sh uninstall.sh verify.sh scripts/*.sh bin/*
+
+      - name: Executar validação completa
+        run: bash ./scripts/ci.sh
+
+      - name: Publicar artefatos da execução
+        uses: actions/upload-artifact@v7
+        with:
+          name: sshplus-${{ github.sha }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14

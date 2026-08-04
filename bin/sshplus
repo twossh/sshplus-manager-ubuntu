@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+set -u
+umask 027
+
+SSHPLUS_HOME="${SSHPLUS_HOME:-/opt/sshplus}"
+# shellcheck source=/opt/sshplus/lib/common.sh
+source "$SSHPLUS_HOME/lib/common.sh"
+source "$SSHPLUS_HOME/lib/database.sh"
+source "$SSHPLUS_HOME/lib/user_service.sh"
+source "$SSHPLUS_HOME/modules/users.sh"
+source "$SSHPLUS_HOME/modules/services.sh"
+source "$SSHPLUS_HOME/modules/security.sh"
+source "$SSHPLUS_HOME/modules/backup.sh"
+source "$SSHPLUS_HOME/modules/vpn.sh"
+source "$SSHPLUS_HOME/modules/badvpn.sh"
+source "$SSHPLUS_HOME/modules/slowdns.sh"
+source "$SSHPLUS_HOME/modules/update.sh"
+source "$SSHPLUS_HOME/modules/panel.sh"
+
+require_root
+load_config
+ensure_runtime_dirs
+
+system_summary() {
+    local os kernel uptime_text load mem disk public_ip sessions ssh_status
+    os="$(. /etc/os-release; printf '%s' "$PRETTY_NAME")"
+    kernel="$(uname -r)"
+    uptime_text="$(uptime -p 2>/dev/null | sed 's/^up //' || printf 'indisponível')"
+    load="$(awk '{print $1" "$2" "$3}' /proc/loadavg)"
+    mem="$(free -h | awk '/^Mem:/{print $3" / "$2}')"
+    disk="$(df -h / | awk 'NR==2{print $3" / "$2" ("$5")"}')"
+    public_ip="$(get_public_ipv4)"
+    sessions="$(who 2>/dev/null | wc -l)"
+    ssh_status="$(service_status_text "$(ssh_unit)")"
+
+    printf '  Sistema:        %b%s%b\n' "$C_WHITE" "$os" "$C_RESET"
+    printf '  Kernel:         %b%s%b\n' "$C_WHITE" "$kernel" "$C_RESET"
+    printf '  IP público:     %b%s%b\n' "$C_WHITE" "$public_ip" "$C_RESET"
+    printf '  Uptime:         %b%s%b\n' "$C_WHITE" "$uptime_text" "$C_RESET"
+    printf '  Carga:          %b%s%b\n' "$C_WHITE" "$load" "$C_RESET"
+    printf '  Memória:        %b%s%b\n' "$C_WHITE" "$mem" "$C_RESET"
+    printf '  Disco /:        %b%s%b\n' "$C_WHITE" "$disk" "$C_RESET"
+    printf '  Sessões:        %b%s%b\n' "$C_WHITE" "$sessions" "$C_RESET"
+    printf '  OpenSSH:        %b%s%b\n' "$C_WHITE" "$ssh_status" "$C_RESET"
+    printf '  BadVPN:         %b%s%b\n' "$C_WHITE" "$(service_status_text sshplus-badvpn.service)" "$C_RESET"
+    printf '  SlowDNS:        %b%s%b\n' "$C_WHITE" "$(service_status_text sshplus-slowdns.service)" "$C_RESET"
+}
+
+show_logs() {
+    header 'Logs recentes' 'SSHPlus e OpenSSH'
+    tail -n 100 "${SSHPLUS_LOG_DIR}/sshplus.log" 2>/dev/null || echo 'Sem registros do SSHPlus.'
+    printf '\nOpenSSH (últimas 30 linhas):\n'
+    journalctl -u "$(ssh_unit)" -n 30 --no-pager 2>/dev/null || true
+}
+
+show_about() {
+    header 'Sobre o SSHPlus Manager'
+    printf 'Versão:       %s\n' "$(sshplus_version)"
+    printf 'Interfaces:   CLI + painel web local + API REST\n'
+    printf 'Aplicação:    %s\n' "$SSHPLUS_HOME"
+    printf 'Configuração: %s\n' "$SSHPLUS_CONFIG_DIR"
+    printf 'Banco SQLite: %s\n' "$SSHPLUS_DB"
+    printf 'Logs:         %s\n' "$SSHPLUS_LOG_DIR"
+}
+
+main_menu() {
+    local option
+    while true; do
+        header "SSHPlus Manager $(sshplus_version)" 'Ubuntu 26.04 LTS — administração SSH/VPN'
+        system_summary
+        printf '\n'
+        printf '  1) Gerenciar usuários SSH\n'
+        printf '  2) Serviços e portas\n'
+        printf '  3) OpenVPN\n'
+        printf '  4) BadVPN UDPGW\n'
+        printf '  5) SlowDNS / DNSTT\n'
+        printf '  6) Painel web e API REST\n'
+        printf '  7) Segurança e otimização\n'
+        printf '  8) Backup e restauração\n'
+        printf '  9) Atualizações do sistema\n'
+        printf ' 10) Exibir logs\n'
+        printf ' 11) Sobre\n'
+        printf '  0) Sair\n\n'
+        read -r -p 'Opção: ' option || exit 0
+        case "$option" in
+            1) users_menu ;;
+            2) services_menu ;;
+            3) vpn_menu ;;
+            4) badvpn_menu ;;
+            5) slowdns_menu ;;
+            6) panel_menu ;;
+            7) security_menu ;;
+            8) backup_menu ;;
+            9) update_menu ;;
+            10) show_logs; pause ;;
+            11) show_about; pause ;;
+            0) clear 2>/dev/null || true; exit 0 ;;
+            *) warn 'Opção inválida.'; sleep 1 ;;
+        esac
+    done
+}
+
+case "${1:-}" in
+    --version|-V) sshplus_version; exit 0 ;;
+    --status) header "SSHPlus Manager $(sshplus_version)"; system_summary; exit 0 ;;
+    --logs) show_logs; exit 0 ;;
+    --check-update) check_for_updates; exit $? ;;
+    --update) update_from_github 0; exit $? ;;
+    --configure-repository) configure_repository; exit $? ;;
+    --panel-status) panel_status; exit 0 ;;
+    --panel-reset-password) panel_reset_password; exit $? ;;
+    --help|-h)
+        cat <<'HELP'
+Uso: sudo sshplus [opção]
+
+Sem opções: abre o menu CLI.
+  --status       exibe o resumo do servidor
+  --logs         exibe logs recentes
+  --version      exibe a versão
+  --check-update verifica a última GitHub Release
+  --update       baixa, valida e instala a última Release
+  --configure-repository configura proprietário/repositório
+  --panel-status exibe acesso e status do painel
+  --panel-reset-password redefine a credencial administrativa
+  --help         exibe esta ajuda
+HELP
+        exit 0
+        ;;
+    '') main_menu ;;
+    *) error "Opção desconhecida: $1"; exit 2 ;;
+esac

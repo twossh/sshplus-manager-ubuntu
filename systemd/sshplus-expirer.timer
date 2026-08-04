@@ -1,0 +1,13 @@
+[Unit]
+Description=Executa verificação de expiração do SSHPlus
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=20s
+RandomizedDelaySec=5s
+Persistent=true
+Unit=sshplus-expirer.service
+
+[Install]
+WantedBy=timers.target

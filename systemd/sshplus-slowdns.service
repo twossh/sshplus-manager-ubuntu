@@ -1,0 +1,51 @@
+[Unit]
+Description=SSHPlus SlowDNS (DNSTT server)
+Documentation=https://www.bamsoftware.com/software/dnstt/
+After=network-online.target ssh.service sshd.service
+Wants=network-online.target
+ConditionFileIsExecutable=/usr/local/sbin/dnstt-server
+ConditionPathExists=/etc/sshplus/slowdns.env
+ConditionPathExists=/etc/slowdns/server.key
+
+[Service]
+Type=simple
+User=sshplus-slowdns
+Group=sshplus-slowdns
+EnvironmentFile=/etc/sshplus/slowdns.env
+ExecStartPre=/opt/sshplus/bin/sshplus-slowdns-check ${SLOWDNS_LISTEN_ADDR} ${SLOWDNS_MTU} ${SLOWDNS_DOMAIN} ${SLOWDNS_UPSTREAM_ADDR}
+ExecStart=/usr/local/sbin/dnstt-server -udp ${SLOWDNS_LISTEN_ADDR} -mtu ${SLOWDNS_MTU} -privkey-file /etc/slowdns/server.key ${SLOWDNS_DOMAIN} ${SLOWDNS_UPSTREAM_ADDR}
+Restart=on-failure
+RestartSec=3s
+TimeoutStopSec=15s
+StandardOutput=journal
+StandardError=journal
+OOMPolicy=stop
+TasksMax=4096
+NoNewPrivileges=yes
+RemoveIPC=yes
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+SystemCallArchitectures=native
+UMask=0077
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

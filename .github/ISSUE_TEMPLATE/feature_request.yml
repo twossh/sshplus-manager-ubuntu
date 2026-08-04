@@ -1,0 +1,33 @@
+name: Solicitar melhoria
+description: Proponha uma funcionalidade ou otimização
+title: "[Melhoria]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Qual problema precisa ser resolvido?
+      description: Explique o cenário real e a limitação atual.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Solução proposta
+      description: Descreva o comportamento esperado.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternativas consideradas
+  - type: checkboxes
+    id: compatibility
+    attributes:
+      label: Compatibilidade
+      options:
+        - label: A proposta preserva ou descreve a migração das configurações existentes.
+          required: true
+        - label: A proposta considera Ubuntu 26.04 e systemd.
+          required: true

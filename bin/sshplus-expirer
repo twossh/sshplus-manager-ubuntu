@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -u
+SSHPLUS_HOME="${SSHPLUS_HOME:-/opt/sshplus}"
+source "$SSHPLUS_HOME/lib/common.sh"
+source "$SSHPLUS_HOME/lib/database.sh"
+source "$SSHPLUS_HOME/lib/user_service.sh"
+require_root; load_config; ensure_runtime_dirs
+now="$(date +%s)"
+while IFS='|' read -r user limit expiry created type status; do
+    [[ -n "$user" && "$expiry" =~ ^[0-9]+$ && "$expiry" -gt 0 ]] || continue
+    (( now >= expiry )) || continue
+    id "$user" >/dev/null 2>&1 || { db_user_remove "$user"; audit_log system timer user.missing "$user" 1; continue; }
+    if [[ "${SSHPLUS_EXPIRE_ACTION:-lock}" == delete ]]; then
+        managed_user_delete "$user" 1 system timer && log INFO "Usuário expirado removido: $user"
+    elif [[ "$status" != expired || "$(passwd -S "$user" 2>/dev/null | awk '{print $2}')" != L ]]; then
+        passwd -l "$user" >/dev/null 2>&1 || true; pkill -KILL -u "$user" 2>/dev/null || true
+        db_user_upsert "$user" "$limit" "$expiry" "$created" "$type" expired
+        audit_log system timer user.expired "$user" 1
+        log INFO "Usuário expirado bloqueado: $user"
+    fi
+done < <(db_users_all)

@@ -1,0 +1,25 @@
+[Unit]
+Description=SSHPlus - coleta de métricas do servidor
+After=local-fs.target
+ConditionPathExists=/var/lib/sshplus/sshplus.db
+
+[Service]
+Type=oneshot
+ExecStart=/opt/sshplus/bin/sshplus-metrics
+Nice=15
+IOSchedulingClass=idle
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/sshplus /var/log/sshplus
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+SystemCallArchitectures=native
+UMask=0077
+TimeoutStartSec=30s

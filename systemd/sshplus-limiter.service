@@ -1,0 +1,24 @@
+[Unit]
+Description=SSHPlus - limite de sessões SSH
+After=ssh.service sshd.service
+ConditionPathExists=/var/lib/sshplus/sshplus.db
+
+[Service]
+Type=oneshot
+ExecStart=/opt/sshplus/bin/sshplus-limiter
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+SystemCallArchitectures=native
+UMask=0077
+TimeoutStartSec=2min

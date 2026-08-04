@@ -1,0 +1,34 @@
+# Artefatos de release
+dist/
+*.zip
+*.tar.gz
+*.sha256
+
+# Arquivos locais e temporários
+*.tmp
+*.temp
+*.bak
+*.swp
+*~
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Segredos e configurações locais
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+server.key
+
+# Logs e dados gerados
+*.log
+users.db
+sshplus.db
+*.db-wal
+*.db-shm
+coverage/

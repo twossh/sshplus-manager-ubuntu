@@ -1,0 +1,77 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Validar e publicar release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Obter código e tags
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Instalar ferramentas de validação
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes shellcheck zip sqlite3 php-cli sudo
+
+      - name: Normalizar permissões dos scripts
+        run: chmod +x install-online.sh install.sh uninstall.sh verify.sh scripts/*.sh bin/*
+
+      - name: Definir versão e tag
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(tr -d '\r\n' < VERSION)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "Versão inválida: $version" >&2
+            exit 1
+          }
+          tag="v$version"
+          if [[ "${GITHUB_REF_TYPE:-}" == tag && "${GITHUB_REF_NAME:-}" != "$tag" ]]; then
+            echo "Tag ${GITHUB_REF_NAME} não corresponde a $tag" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Validar e gerar artefatos
+        run: bash ./scripts/ci.sh
+
+      - name: Publicar GitHub Release quando ainda não existir
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG já existe; nenhuma alteração necessária."
+            exit 0
+          fi
+
+          gh release create "$RELEASE_TAG" \
+            dist/*.zip \
+            dist/*.tar.gz \
+            dist/SHA256SUMS-release.txt \
+            --target "$GITHUB_SHA" \
+            --generate-notes \
+            --title "SSHPlus Manager $RELEASE_TAG"

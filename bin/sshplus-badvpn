@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -u
+SSHPLUS_HOME="${SSHPLUS_HOME:-/opt/sshplus}"
+# shellcheck source=/opt/sshplus/lib/common.sh
+source "$SSHPLUS_HOME/lib/common.sh"
+source "$SSHPLUS_HOME/modules/badvpn.sh"
+require_root
+load_config
+badvpn_menu

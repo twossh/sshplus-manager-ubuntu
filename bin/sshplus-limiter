@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -u
+SSHPLUS_HOME="${SSHPLUS_HOME:-/opt/sshplus}"
+source "$SSHPLUS_HOME/lib/common.sh"
+source "$SSHPLUS_HOME/lib/database.sh"
+require_root; ensure_runtime_dirs
+while IFS='|' read -r user limit _expiry _created _type status; do
+    [[ -n "$user" && "$limit" =~ ^[1-9][0-9]*$ && "$status" == active ]] || continue
+    id "$user" >/dev/null 2>&1 || continue
+    mapfile -t sessions < <(user_session_pids "$user")
+    count="${#sessions[@]}"; (( count > limit )) || continue
+    for ((i=limit; i<count; i++)); do
+        pid="${sessions[$i]%% *}"; kill -TERM "$pid" 2>/dev/null || true; sleep 0.2; kill -KILL "$pid" 2>/dev/null || true
+        audit_log system timer session.limit "$user" 1 "pid=$pid limite=$limit"
+        log WARN "Sessão excedente encerrada: usuário=$user pid=$pid limite=$limit"
+    done
+done < <(db_users_all)

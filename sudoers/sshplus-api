@@ -1,0 +1,3 @@
+Cmnd_Alias SSHPLUS_AGENT = /opt/sshplus/bin/sshplus-agent *
+%sshplus-api ALL=(root) NOPASSWD: SSHPLUS_AGENT
+Defaults!SSHPLUS_AGENT !setenv, secure_path=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin

@@ -1,0 +1,14 @@
+SSHPlus Manager
+Copyright (c) 2026 Antonio Christofoli Junior
+
+This repository does not bundle the source code of BadVPN or DNSTT. Optional
+installation modules download and compile those projects from their official
+upstream sources. Their original license and notice files are preserved by the
+installer whenever available.
+
+Upstream projects:
+- BadVPN: https://github.com/ambrop72/badvpn
+- DNSTT: https://www.bamsoftware.com/software/dnstt/
+
+Review the upstream licenses before redistributing binaries produced by these
+modules.

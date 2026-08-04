@@ -1,0 +1,201 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 027
+export LC_ALL=C
+
+SSHPLUS_HOME="${SSHPLUS_HOME:-/opt/sshplus}"
+source "$SSHPLUS_HOME/lib/common.sh"
+source "$SSHPLUS_HOME/lib/database.sh"
+source "$SSHPLUS_HOME/lib/user_service.sh"
+source "$SSHPLUS_HOME/modules/backup.sh"
+source "$SSHPLUS_HOME/modules/update.sh"
+
+require_root
+load_config
+ensure_runtime_dirs
+
+action="${1:-}"
+[[ "$action" =~ ^[a-z][a-z0-9._-]{0,63}$ ]] || { jq -n '{ok:false,error:"ação inválida"}'; exit 2; }
+payload="$(head -c 65537 || true)"
+(( ${#payload} <= 65536 )) || { jq -n '{ok:false,error:"requisição muito grande"}'; exit 2; }
+[[ -n "$payload" ]] || payload='{}'
+jq -e 'type == "object"' <<< "$payload" >/dev/null 2>&1 || { jq -n '{ok:false,error:"JSON inválido"}'; exit 2; }
+
+actor="$(jq -r '.actor // "panel" | tostring | .[0:64]' <<< "$payload")"
+remote="$(jq -r '.remote_addr // "" | tostring | .[0:64]' <<< "$payload")"
+
+json_error() { jq -n --arg error "$1" --argjson code "${2:-1}" '{ok:false,error:$error,code:$code}'; }
+json_ok() { jq -n --arg message "${1:-ok}" '{ok:true,message:$message}'; }
+
+service_allowed() {
+    case "$1" in
+        ssh.service|sshd.service|nginx.service|php8.5-fpm.service|fail2ban.service|sshplus-badvpn.service|sshplus-slowdns.service|sshplus-expirer.timer|sshplus-limiter.timer|openvpn-server@sshplus.service|sshplus-openvpn-nat.service) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+status_json() {
+    local load1 mem_total mem_avail disk_total disk_avail rx tx uptime users sessions ip cpu_count process_count
+    local temperature gateway latency top_processes
+    load1="$(awk '{print $1}' /proc/loadavg)"
+    mem_total="$(awk '/MemTotal:/{print $2*1024}' /proc/meminfo)"
+    mem_avail="$(awk '/MemAvailable:/{print $2*1024}' /proc/meminfo)"
+    read -r disk_total disk_avail < <(df -B1 --output=size,avail / | awk 'NR==2{print $1,$2}')
+    read -r rx tx < <(awk -F'[: ]+' '/:/{if($2!="lo"){rx+=$3; tx+=$11}} END{print rx+0,tx+0}' /proc/net/dev)
+    uptime="$(awk '{print int($1)}' /proc/uptime)"
+    users="$(db_query 'SELECT count(*) FROM users;')"
+    sessions="$(who 2>/dev/null | wc -l | tr -d ' ')"
+    ip="$(get_public_ipv4)"
+    cpu_count="$(nproc 2>/dev/null || printf 1)"
+    process_count="$(ps -e --no-headers 2>/dev/null | wc -l | tr -d ' ')"
+
+    temperature='null'
+    for sensor in /sys/class/thermal/thermal_zone*/temp; do
+        [[ -r "$sensor" ]] || continue
+        raw="$(cat "$sensor" 2>/dev/null || true)"
+        if [[ "$raw" =~ ^[0-9]+$ ]]; then
+            temperature="$(awk -v value="$raw" 'BEGIN{printf "%.1f", value/1000}')"
+            break
+        fi
+    done
+
+    gateway="$(ip -4 route show default 2>/dev/null | awk 'NR==1{print $3}')"
+    latency='null'
+    if command -v ping >/dev/null 2>&1 && valid_ipv4 "$gateway"; then
+        ping_line="$({ ping -n -c 1 -W 1 "$gateway" 2>/dev/null | awk -F'time=' '/time=/{print $2; exit}'; } || true)"
+        ping_value="${ping_line%% *}"
+        [[ "$ping_value" =~ ^[0-9]+([.][0-9]+)?$ ]] && latency="$ping_value"
+    fi
+
+    top_processes="$(ps -eo pid=,comm=,%cpu=,%mem= --sort=-%cpu 2>/dev/null | awk 'NR<=5{printf "%s\t%s\t%s\t%s\n",$1,$2,$3,$4}' | jq -Rsc '
+      split("\n") | map(select(length>0) | split("\t") |
+      {pid:(.[0]|tonumber),name:.[1],cpu:(.[2]|tonumber),memory:(.[3]|tonumber)})')"
+    [[ -n "$top_processes" ]] || top_processes='[]'
+
+    jq -n \
+      --arg version "$(sshplus_version)" --arg hostname "$(hostname -f 2>/dev/null || hostname)" --arg public_ip "$ip" \
+      --arg gateway "${gateway:-indisponível}" --argjson gateway_latency_ms "$latency" --argjson temperature_c "$temperature" \
+      --argjson cpu_count "$cpu_count" --argjson process_count "$process_count" --argjson top_processes "$top_processes" \
+      --argjson load1 "$load1" --argjson mem_total "$mem_total" --argjson mem_available "$mem_avail" \
+      --argjson disk_total "$disk_total" --argjson disk_available "$disk_avail" --argjson rx "$rx" --argjson tx "$tx" \
+      --argjson uptime "$uptime" --argjson users "$users" --argjson sessions "$sessions" \
+      --arg ssh "$(service_status_text "$(ssh_unit)")" --arg nginx "$(service_status_text nginx.service)" \
+      --arg php "$(service_status_text php8.5-fpm.service)" --arg fail2ban "$(service_status_text fail2ban.service)" \
+      --arg openvpn "$(service_status_text openvpn-server@sshplus.service)" \
+      --arg badvpn "$(service_status_text sshplus-badvpn.service)" --arg slowdns "$(service_status_text sshplus-slowdns.service)" \
+      '{ok:true,data:{version:$version,hostname:$hostname,public_ip:$public_ip,load1:$load1,cpu_count:$cpu_count,
+       process_count:$process_count,temperature_c:$temperature_c,uptime_seconds:$uptime,
+       gateway:{address:$gateway,latency_ms:$gateway_latency_ms},top_processes:$top_processes,
+       memory:{total:$mem_total,available:$mem_available,used:($mem_total-$mem_available)},
+       disk:{total:$disk_total,available:$disk_available,used:($disk_total-$disk_available)},
+       network:{rx_bytes:$rx,tx_bytes:$tx},managed_users:$users,active_sessions:$sessions,
+       services:{ssh:$ssh,nginx:$nginx,php:$php,fail2ban:$fail2ban,openvpn:$openvpn,badvpn:$badvpn,slowdns:$slowdns}}}'
+}
+
+case "$action" in
+    status)
+        status_json
+        ;;
+    users.list)
+        data="$(db_users_json)"; jq -n --argjson data "${data:-[]}" '{ok:true,data:$data}'
+        ;;
+    metrics.list)
+        limit="$(jq -r '.limit // 72' <<< "$payload")"
+        data="$(db_metrics_json "$limit")"
+        jq -n --argjson data "${data:-[]}" '{ok:true,data:$data}'
+        ;;
+    users.create)
+        user="$(jq -r '.username // empty' <<< "$payload")"
+        password="$(jq -r '.password // empty' <<< "$payload")"
+        limit="$(jq -r '.max_sessions // 1' <<< "$payload")"
+        expiry="$(jq -r '.expires_at // 0' <<< "$payload")"
+        type="$(jq -r '.user_type // "normal"' <<< "$payload")"
+        err="$(mktemp)"; if managed_user_create "$user" "$password" "$limit" "$expiry" "$type" "$actor" api >"$err" 2>&1; then
+            rm -f "$err"; json_ok 'Usuário criado.'
+        else rc=$?; msg="$(tail -n1 "$err")"; rm -f "$err"; json_error "${msg:-Falha ao criar usuário.}" "$rc"; fi
+        ;;
+    users.update)
+        user="$(jq -r '.username // empty' <<< "$payload")"
+        [[ -n "$user" ]] || { json_error 'Usuário obrigatório.' 2; exit 2; }
+        if jq -e 'has("password") and .password != ""' <<< "$payload" >/dev/null; then
+            value="$(jq -r '.password' <<< "$payload")"; managed_user_set_password "$user" "$value" "$actor" api >/dev/null 2>&1 || { json_error 'Falha ao alterar senha.' "$?"; exit 1; }
+        fi
+        if jq -e 'has("max_sessions")' <<< "$payload" >/dev/null; then
+            value="$(jq -r '.max_sessions' <<< "$payload")"; managed_user_set_limit "$user" "$value" "$actor" api >/dev/null 2>&1 || { json_error 'Limite inválido.' "$?"; exit 1; }
+        fi
+        if jq -e 'has("expires_at")' <<< "$payload" >/dev/null; then
+            value="$(jq -r '.expires_at' <<< "$payload")"; managed_user_set_expiry "$user" "$value" 1 "$actor" api >/dev/null 2>&1 || { json_error 'Expiração inválida.' "$?"; exit 1; }
+        fi
+        if jq -e 'has("status")' <<< "$payload" >/dev/null; then
+            value="$(jq -r '.status' <<< "$payload")"; managed_user_set_status "$user" "$value" "$actor" api >/dev/null 2>&1 || { json_error 'Status inválido ou conta expirada.' "$?"; exit 1; }
+        fi
+        json_ok 'Usuário atualizado.'
+        ;;
+    users.delete)
+        user="$(jq -r '.username // empty' <<< "$payload")"
+        remove_home="$(jq -r 'if .remove_home == false then 0 else 1 end' <<< "$payload")"
+        managed_user_delete "$user" "$remove_home" "$actor" api >/dev/null 2>&1 && json_ok 'Usuário removido.' || json_error 'Falha ao remover usuário.' "$?"
+        ;;
+    services.list)
+        jq -n \
+          --arg ssh "$(service_status_text "$(ssh_unit)")" --arg nginx "$(service_status_text nginx.service)" \
+          --arg php "$(service_status_text php8.5-fpm.service)" --arg fail2ban "$(service_status_text fail2ban.service)" \
+          --arg badvpn "$(service_status_text sshplus-badvpn.service)" --arg slowdns "$(service_status_text sshplus-slowdns.service)" \
+          --arg expirer "$(service_status_text sshplus-expirer.timer)" --arg limiter "$(service_status_text sshplus-limiter.timer)" \
+          '{ok:true,data:[
+            {unit:"ssh.service",name:"OpenSSH",status:$ssh},{unit:"nginx.service",name:"Nginx",status:$nginx},
+            {unit:"php8.5-fpm.service",name:"PHP 8.5 FPM",status:$php},{unit:"fail2ban.service",name:"Fail2ban",status:$fail2ban},
+            {unit:"sshplus-badvpn.service",name:"BadVPN UDPGW",status:$badvpn},{unit:"sshplus-slowdns.service",name:"SlowDNS / DNSTT",status:$slowdns},
+            {unit:"sshplus-expirer.timer",name:"Expiração",status:$expirer},{unit:"sshplus-limiter.timer",name:"Limite de sessões",status:$limiter}]}'
+        ;;
+    services.restart)
+        unit="$(jq -r '.unit // empty' <<< "$payload")"
+        [[ "$unit" == ssh.service ]] && unit="$(ssh_unit)"
+        service_allowed "$unit" || { json_error 'Serviço não permitido.' 2; exit 2; }
+        if [[ "$unit" == "$(ssh_unit)" ]]; then validate_sshd || { json_error 'Configuração OpenSSH inválida.' 1; exit 1; }; fi
+        systemctl restart "$unit" && { audit_log "$actor" api service.restart "$unit" 1 '' "$remote"; json_ok 'Serviço reiniciado.'; } || { audit_log "$actor" api service.restart "$unit" 0 '' "$remote"; json_error 'Falha ao reiniciar serviço.' 1; }
+        ;;
+    audit.list)
+        limit="$(jq -r '.limit // 100' <<< "$payload")"; data="$(db_audit_json "$limit")"; jq -n --argjson data "${data:-[]}" '{ok:true,data:$data}'
+        ;;
+    audit.write)
+        event="$(jq -r '.event // "api.event" | .[0:64]' <<< "$payload")"; target="$(jq -r '.target // "" | .[0:128]' <<< "$payload")"; success="$(jq -r '.success // 1' <<< "$payload")"
+        audit_log "$actor" api "$event" "$target" "$success" '' "$remote"; json_ok
+        ;;
+    backups.list)
+        backup_list_json
+        ;;
+    backups.create)
+        if file="$(create_backup_file api "$actor")"; then jq -n --arg file "$file" '{ok:true,message:"Backup criado.",file:$file}'; else json_error 'Falha ao criar backup.' 1; fi
+        ;;
+    updates.check)
+        repo="$(configured_repository 2>/dev/null || true)"; [[ -n "$repo" ]] || { json_error 'Repositório não configurado.' 2; exit 2; }
+        info_line="$(release_info "$repo" 2>/dev/null || true)"; [[ -n "$info_line" ]] || { json_error 'Não foi possível consultar a Release.' 1; exit 1; }
+        IFS='|' read -r latest _ _ _ <<< "$info_line"; current="$(sshplus_version)"
+        newer=false; version_is_newer "$current" "$latest" && newer=true
+        jq -n --arg current "$current" --arg latest "$latest" --arg repo "$repo" --argjson update_available "$newer" '{ok:true,data:{current:$current,latest:$latest,repository:$repo,update_available:$update_available}}'
+        ;;
+    updates.apply)
+        update_log="$(mktemp /tmp/sshplus-api-update.XXXXXX)"; trap 'rm -f "$update_log"' EXIT
+        SSHPLUS_ASSUME_YES=1 update_from_github 0 >"$update_log" 2>&1 && { audit_log "$actor" api update.apply '' 1; json_ok 'Atualização aplicada.'; } || { audit_log "$actor" api update.apply '' 0; json_error "$(tail -n1 "$update_log")" 1; }
+        ;;
+    rollbacks.list)
+        rollback_list_json
+        ;;
+    rollbacks.apply)
+        file="$(jq -r '.file // empty' <<< "$payload")"
+        rollback_apply "$file" "$actor" api >/dev/null 2>&1 && json_ok 'Rollback aplicado.' || json_error 'Falha no rollback.' "$?"
+        ;;
+    servers.list)
+        data="$(db_server_list_json)"; jq -n --argjson data "${data:-[]}" '{ok:true,data:$data}'
+        ;;
+    servers.create)
+        name="$(jq -r '.name // empty | .[0:80]' <<< "$payload")"; endpoint="$(jq -r '.endpoint // empty | .[0:255]' <<< "$payload")"
+        [[ -n "$name" && "$endpoint" =~ ^https?:// ]] || { json_error 'Nome ou endpoint inválido.' 2; exit 2; }
+        db_server_add "$name" "$endpoint"; audit_log "$actor" api server.create "$name" 1 "$endpoint" "$remote"; json_ok 'Servidor cadastrado.'
+        ;;
+    servers.delete)
+        id="$(jq -r '.id // empty' <<< "$payload")"; db_server_remove "$id" && { audit_log "$actor" api server.delete "$id" 1; json_ok 'Servidor removido.'; } || json_error 'Servidor inválido.' 2
+        ;;
+    *) json_error 'Ação não permitida.' 2; exit 2 ;;
+esac

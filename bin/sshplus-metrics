@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+SSHPLUS_HOME="${SSHPLUS_HOME:-/opt/sshplus}"
+source "$SSHPLUS_HOME/lib/common.sh"
+source "$SSHPLUS_HOME/lib/database.sh"
+require_root; ensure_runtime_dirs
+load="$(awk '{print $1}' /proc/loadavg)"
+mem_total="$(awk '/MemTotal:/{print $2*1024}' /proc/meminfo)"
+mem_available="$(awk '/MemAvailable:/{print $2*1024}' /proc/meminfo)"
+read -r disk_total disk_available < <(df -B1 --output=size,avail / | awk 'NR==2{print $1,$2}')
+read -r rx tx < <(awk -F'[: ]+' '/:/{if($2!="lo"){rx+=$3; tx+=$11}} END{print rx+0,tx+0}' /proc/net/dev)
+db_exec "INSERT INTO metrics(recorded_at,cpu_load,memory_used_bytes,memory_total_bytes,disk_used_bytes,disk_total_bytes,rx_bytes,tx_bytes)
+VALUES($(date +%s),$load,$((mem_total-mem_available)),$mem_total,$((disk_total-disk_available)),$disk_total,$rx,$tx);
+DELETE FROM metrics WHERE recorded_at < $(($(date +%s)-2592000));"
